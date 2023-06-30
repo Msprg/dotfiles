@@ -1,4 +1,16 @@
-# Mathias’s dotfiles
+# A dotfile mix I made literally ✨overnight✨
+
+Cherrypicked and merged dotfiles from the following repositories:
+https://github.com/gurdiga/dotfiles
+https://github.com/mathiasbynens/dotfiles - forked, served as a basis.
+https://github.com/Bash-it/bash-it
+
+I have also removed most of the MacOS stuff as it's redundant and/or irrelevant to me.
+
+//todo: some light refactoring and organization are in order.
+
+
+## Readme from Mathias's repo :)
 
 ![Screenshot of my shell prompt](https://i.imgur.com/EkEtphC.png)
 
@@ -11,7 +23,7 @@
 You can clone the repository wherever you want. (I like to keep it in `~/Projects/dotfiles`, with `~/dotfiles` as a symlink.) The bootstrapper script will pull in the latest version and copy the files to your home folder.
 
 ```bash
-git clone https://github.com/mathiasbynens/dotfiles.git && cd dotfiles && source bootstrap.sh
+git clone https://github.com/msprg/dotfiles.git && cd dotfiles && source bootstrap.sh
 ```
 
 To update, `cd` into your local `dotfiles` repository and then:
@@ -31,7 +43,7 @@ set -- -f; source bootstrap.sh
 To install these dotfiles without Git:
 
 ```bash
-cd; curl -#L https://github.com/mathiasbynens/dotfiles/tarball/main | tar -xzv --strip-components 1 --exclude={README.md,bootstrap.sh,.osx,LICENSE-MIT.txt}
+cd; curl -#L https://github.com/msprg/dotfiles/tarball/main | tar -xzv --strip-components 1 --exclude={*.md,*.sh,.osx,*.txt}
 ```
 
 To update later on, just run that command again.
