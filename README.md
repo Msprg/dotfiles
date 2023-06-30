@@ -1,6 +1,7 @@
 # A dotfile mix I made literally ✨overnight✨
 
 Cherrypicked and merged dotfiles from the following repositories:
+
 https://github.com/gurdiga/dotfiles
 
 https://github.com/mathiasbynens/dotfiles - forked, served as a basis.
