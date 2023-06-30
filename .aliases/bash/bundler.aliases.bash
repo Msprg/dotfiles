@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-about-alias 'ruby bundler'
+#about-alias 'ruby bundler'
 
 # Bundler Commands
 alias be='bundle exec'

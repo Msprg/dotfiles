@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-about-alias 'Some aliases for Homebrew'
+#about-alias 'Some aliases for Homebrew'
 
 alias bup='brew update && brew upgrade'
 alias bout='brew outdated'

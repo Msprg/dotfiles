@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-about-alias 'the silver searcher (ag) aliases'
+#about-alias 'the silver searcher (ag) aliases'
 
 ## Summary for args to less:
 # less(1)

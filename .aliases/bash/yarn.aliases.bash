@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-about-alias 'yarn package manager aliases'
+#about-alias 'yarn package manager aliases'
 
 # Aliases
 alias ya='yarn'

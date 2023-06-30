@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-about-alias 'vagrant aliases'
+#about-alias 'vagrant aliases'
 
 # Aliases
 alias vhl='vagrant hosts list'

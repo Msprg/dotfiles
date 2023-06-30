@@ -12,13 +12,13 @@ echo -n -e "\033]0;`whoami`@`hostname -f`\007"
 set -b
 
 
-[ -r "~/.aliases/bash/aliases" ] && [ -f "~/.aliases/bash/aliases" ] && source "~/.aliases/bash/aliases";
 # Load the shell dotfiles, and then some:
 # * ~/.path can be used to extend `$PATH`.
 # * ~/.extra can be used for other settings you don’t want to commit.
 for file in ~/.{path,bash_prompt,exports,functions,extra,systemspecific}; do
 	[ -r "$file" ] && [ -f "$file" ] && source "$file";
 done;
+[ -r "$HOME/.aliases/bash/aliases" ] && [ -f "$HOME/.aliases/bash/aliases" ] && source "$HOME/.aliases/bash/aliases";
 unset file;
 
 shopt -s extglob

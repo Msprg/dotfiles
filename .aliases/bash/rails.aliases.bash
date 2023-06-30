@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-about-alias 'rails abbreviations'
+#about-alias 'rails abbreviations'
 
 # Rails Commands
 alias r='rails'

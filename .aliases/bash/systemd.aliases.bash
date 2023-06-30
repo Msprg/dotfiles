@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-about-alias 'systemd service'
+#about-alias 'systemd service'
 
 case $OSTYPE in
 	linux*)

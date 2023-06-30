@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-about-alias 'emacs editor'
+#about-alias 'emacs editor'
 
 case $OSTYPE in
 	linux*)

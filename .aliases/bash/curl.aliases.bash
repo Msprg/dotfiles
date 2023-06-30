@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-about-alias 'Curl aliases for convenience.'
+#about-alias 'Curl aliases for convenience.'
 
 # set apt aliases
 function _set_pkg_aliases() {

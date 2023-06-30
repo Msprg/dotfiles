@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-about-alias 'fuck/please to retry last command with sudo'
+#about-alias 'fuck/please to retry last command with sudo'
 
 # Play nicely with 'thefuck' plugin
 if ! _command_exists fuck; then

@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-about-alias 'Aliases for the bash-it command (these aliases are automatically included with the "general" aliases)'
+#about-alias 'Aliases for the bash-it command (these aliases are automatically included with the "general" aliases)'
 
 # Common misspellings of bash-it
 alias shit='bash-it'

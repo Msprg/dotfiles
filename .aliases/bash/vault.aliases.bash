@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-about-alias 'vault aliases'
+#about-alias 'vault aliases'
 
 # Aliases
 alias vad="vault delete"

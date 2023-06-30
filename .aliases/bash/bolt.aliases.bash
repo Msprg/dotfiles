@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-about-alias 'puppet bolt aliases'
+#about-alias 'puppet bolt aliases'
 
 # Aliases
 alias bolt='bolt command run --tty --no-host-key-check'

@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-about-alias 'Atom.io editor abbreviations'
+#about-alias 'Atom.io editor abbreviations'
 
 alias a='atom'
 alias ah='atom .'

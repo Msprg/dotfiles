@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-about-alias 'textmate abbreviations'
+#about-alias 'textmate abbreviations'
 
 case $OSTYPE in
 	darwin*)

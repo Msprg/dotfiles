@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-about-alias 'kubectl aliases'
+#about-alias 'kubectl aliases'
 
 if _command_exists kubectl; then
 	alias kc='kubectl'

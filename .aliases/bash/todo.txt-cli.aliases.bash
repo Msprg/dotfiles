@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-about-alias 'todo.txt-cli abbreviations'
+#about-alias 'todo.txt-cli abbreviations'
 
 alias tls='"${TODO?}" ls'
 alias ta='"${TODO?}" a'

@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-about-alias 'common npm abbreviations'
+#about-alias 'common npm abbreviations'
 
 # Aliases
 

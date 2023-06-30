@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-about-alias 'general aliases'
+#about-alias 'general aliases'
 
 if command ls --color -d . &> /dev/null; then
 	alias ls='ls --color=auto'

@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-about-alias 'homesick aliases'
+#about-alias 'homesick aliases'
 
 # Aliases
 alias sikhm="homesick cd dotfiles"

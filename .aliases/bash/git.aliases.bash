@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-about-alias 'common git abbreviations'
+#about-alias 'common git abbreviations'
 
 alias g='git'
 alias get='git'

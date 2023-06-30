@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-about-alias 'Aliases for Terraform and Terragrunt'
+#about-alias 'Aliases for Terraform and Terragrunt'
 
 alias tg='terragrunt'
 alias tgv='terragrunt validate'

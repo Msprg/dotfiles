@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-about-alias 'common svn abbreviations'
+#about-alias 'common svn abbreviations'
 
 # Aliases
 alias svs='svn status'

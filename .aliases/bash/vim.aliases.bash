@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-about-alias 'vim abbreviations'
+#about-alias 'vim abbreviations'
 
 _command_exists vim || return
 

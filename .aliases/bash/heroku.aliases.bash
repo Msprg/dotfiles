@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-about-alias 'heroku task abbreviations'
+#about-alias 'heroku task abbreviations'
 
 # heroku
 alias h='heroku'

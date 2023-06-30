@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-about-alias 'jitsu task abbreviations'
+#about-alias 'jitsu task abbreviations'
 
 # jitsu
 alias j='jitsu'

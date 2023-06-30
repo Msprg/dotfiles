@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-about-alias 'Some aliases for Homebrew Cask'
+#about-alias 'Some aliases for Homebrew Cask'
 
 alias bcin='brew cask install'
 alias bcrm='brew cask uninstall'

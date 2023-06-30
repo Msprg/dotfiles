@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-about-alias 'MSYS2 aliases'
+#about-alias 'MSYS2 aliases'
 
 LS_COMMON="-hG"
 LS_COMMON="$LS_COMMON --color=auto"

@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-about-alias 'phoenix abbreviations'
+#about-alias 'phoenix abbreviations'
 
 # Phoenix Commands
 alias i='iex'
