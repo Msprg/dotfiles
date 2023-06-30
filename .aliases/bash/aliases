@@ -61,6 +61,10 @@ alias rd='rmdir'
 # Shorten extract
 alias xt='extract'
 
+# Add an "alert" alias for long running commands.  Use like so:
+#   sleep 10; alert
+alias alert='notify-send --urgency=low -i "$([ $? = 0 ] && echo terminal || echo error)" "$(history|tail -n1|sed -e '\''s/^\s*[0-9]\+\s*//;s/[;&|]\s*alert$//'\'')"'
+
 # Display whatever file is regular file or folder
 function catt() {
 	for i in "$@"; do
