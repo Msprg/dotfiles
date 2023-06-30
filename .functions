@@ -2,13 +2,481 @@
 
 # Create a new directory and enter it
 function mkd() {
-	mkdir -p "$@" && cd "$_";
+	mkdir -p "$@" && cd "$_" || return;
 }
 
-# Change working directory to the top-most Finder window location
-function cdf() { # short for `cdfinder`
-	cd "$(osascript -e 'tell app "Finder" to POSIX path of (insertion location as alias)')";
+# Determine size of a file or total size of a directory
+function fs() {
+	if du -b /dev/null > /dev/null 2>&1; then
+		local arg=-sbh;
+	else
+		local arg=-sh;
+	fi
+	if [[ -n "$@" ]]; then
+		du $arg -- "$@";
+	else
+		du $arg .[^.]* ./*;
+	fi;
 }
+
+
+
+#!SECTION per-directory Bash history
+function check_for_local_history {
+	function main {
+		if found_local_history_file; then
+			if [ ! "$PWD" == "$HOME" ]; then
+				echo "Using local Bash history"
+			fi
+
+			use_history_file "$PWD/.bash_history"
+		else
+			use_history_file ~/.bash_history
+		fi
+	}
+
+	function found_local_history_file {
+		[ -e .bash_history ]
+  	}
+
+	function use_history_file {
+		history -w
+		history -c
+		export HISTFILE="$1"
+		history -r
+	}
+
+	main
+}
+
+function changing_directory {
+	function main {
+		local last_command=`history 1`
+		local last_command=${last_command:27} # this depends on HISTTIMEFORMAT
+
+		is_cd_nothing || is_cd_something || is_a_cd_alias
+	}
+
+	function is_cd_nothing {
+		[ ${#last_command} -eq 2 -a "${last_command:0:2}" = "cd" ]
+	}
+
+	function is_cd_something {
+		[ ${#last_command} -gt 2 -a "${last_command:0:3}" = "cd " ]
+	}
+
+	function is_a_cd_alias {
+		local cd_aliases=`alias | grep "='cd " | grep -E -o 'alias [a-z]+='`
+		echo $cd_aliases | grep -F -q "alias $last_command="
+	}
+
+	main
+}
+
+#function check_for_nvmrc {
+#	local nvm_node_path="$HOME/.nvm/versions/node"
+#
+#	function main {
+#		if [ -e .nvmrc ]; then
+#			local expected_node_version=`get_version_from_nvmrc`
+#			local expected_node_path="$nvm_node_path/$expected_node_version/bin"
+#			local current_node_version=`get_current_node_version`
+#
+#			if [[ -n $current_node_version && $current_node_version =~ $expected_node_version ]]; then
+#				return
+#			fi
+#
+#			if [ -d $expected_node_path ]; then
+#				# Remove previous nvm_node_path from PATH if found
+#				export PATH=$expected_node_path:`remove_path_item_matching $nvm_node_path`
+#				echo "Changed Node version to $(node -v)"
+#			else
+#				export NVM_DIR="$HOME/.nvm"
+#				source "$NVM_DIR/nvm.sh"  # This loads nvm
+#				nvm use
+#			fi
+#		fi
+#	}
+#
+#	function get_current_node_version {
+#		if [[ "$(type -t nvm)" == "function" ]]; then
+#			nvm current
+#			return
+#		fi
+#
+#		if [[ "$(type -t node)" == "file" ]]; then
+#			node --version
+#			return
+#		fi
+#	}
+#
+#	function get_version_from_nvmrc {
+#		local version=$(<.nvmrc)
+#		version=${version/v/}
+#		echo v$version
+#	}
+#
+#	function remove_path_item_matching {
+#		local path_item=$1
+#
+#		if grep -F "$path_item" <<<$PATH ; then
+#			escaped_path_item=${path_item//\//\\/} # escape slashes for the awk regexp
+#			awk -v RS=: -v ORS=: "/$escaped_path_item/ {next} {print}" <<<$PATH
+#		else
+#			echo $PATH
+#		fi
+#	}
+#
+#	main
+#}
+
+#function check_for_ruby_version {
+#	if [ -e .ruby-version ]; then
+#		source "$HOME/.rvm/scripts/rvm" # Load RVM into a shell session *as a function*
+#		rvm use
+#	fi
+#}
+
+function check_for_dot_env {
+	# Unload prev .env if any
+	if [ ! -z "$OLDPWD" ] && [ -f "$OLDPWD/.env" ]; then
+		unset $(grep -Po '^(export )?\K\w+' "$OLDPWD/.env")
+	fi
+
+	if [ -e .env ]; then
+		set -o allexport
+		source .env
+		set +o allexport
+		echo "Loaded .env"
+	fi
+}
+
+function do_my_checks {
+	if ! changing_directory; then
+		return
+	fi
+
+	check_for_local_history
+#	check_for_nvmrc
+#	check_for_ruby_version
+	check_for_dot_env
+#	set_macos_terminal_tab_title
+}
+
+function set_macos_terminal_tab_title {
+	local home_relative_path=$(realpath --relative-to="$HOME" "$PWD")
+
+	echo -n -e "\033]0;~/${home_relative_path}\007"
+}
+
+function add_prompt_command {
+	function main {
+		if ! already_set; then
+			if [ -z "$PROMPT_COMMAND" ]; then
+				PROMPT_COMMAND="do_my_checks"
+			else
+				PROMPT_COMMAND="${PROMPT_COMMAND}; do_my_checks"
+			fi
+		fi
+	}
+
+	function already_set {
+		grep -q check_for_local_history <<<$PROMPT_COMMAND
+	}
+
+	main
+}
+add_prompt_command
+
+#export RUBY_GC_MALLOC_LIMIT=90000000
+#export RUBY_GC_HEAP_FREE_SLOTS=200000
+
+# brew
+#BREW_PREFIX=$(/opt/homebrew/bin/brew --prefix)
+#
+#if [ `arch` = 'i386' ]; then
+#	echo "Rosetta"
+#	BREW_PREFIX=$(/usr/local/homebrew/bin/brew --prefix)
+#fi
+#
+#export PATH="$BREW_PREFIX/opt/coreutils/libexec/gnubin:$PATH"
+#export PATH="$BREW_PREFIX/opt/findutils/libexec/gnubin:$PATH"
+#export PATH="$BREW_PREFIX/opt/grep/libexec/gnubin:$PATH"
+#export PATH="$BREW_PREFIX/opt/grep/libexec/gnubin:$PATH"
+#export PATH="$BREW_PREFIX/opt/gnu-sed/libexec/gnubin:$PATH"
+#export PATH="$BREW_PREFIX/opt/python/libexec/bin:$PATH"
+#export MANPATH="$BREW_PREFIX/opt/coreutils/libexec/gnuman:$MANPATH"
+
+# node
+#export PATH="./node_modules/.bin:$PATH"
+
+# Ruby gems
+#export PATH=$PATH:~/.gem/ruby/2.6.0/bin
+
+#export LC_ALL=en_US.UTF-8
+#export LANG=en_US.UTF-8
+
+function pull() {
+	if [ ! -d .git ]; then
+		echo "Not a Git repo."
+		return 1
+	fi
+
+	if [ $# -eq 0 ]; then
+		if [ "`git status --short --branch | head -1 | grep -o '(no branch)'`" = "(no branch)" ]; then
+			echo "Not on a branch."
+			return 1
+		fi
+
+		# If there is a tracked branch only pull that one
+		git status --short --branch |\
+		head -1 |\
+		grep -oP '\.{3}\K\S+' |\
+		sed 's|/| |' |\
+		xargs git pull
+	else
+		git pull "$@"
+	fi
+}
+
+function q() {
+	local wildcard="$1"
+	shift
+	local dirs="$@"
+
+	local IGNORE_DIRS=".git"
+	local DOT_FILE=".qignore"
+	local EXCLUDE_DIR_CLAUSE=""
+
+	if [ -f $DOT_FILE ]; then
+		IGNORE_DIRS+=" "`cat "$DOT_FILE" | paste -sd " "`
+	fi
+
+	local IGNORE_DIRS_RE=${IGNORE_DIRS// /\|}
+
+	for DIR in $IGNORE_DIRS; do
+		EXCLUDE_DIR_CLAUSE+=" -path ./$DIR -prune -o"
+	done
+
+	find ${dirs:-.} $EXCLUDE_DIR_CLAUSE -name "$wildcard" \
+		| grep -Pv "^./($IGNORE_DIRS_RE)$"
+}
+
+function aac2mp3() {
+	aac_file=$1
+	mp3_file=$(basename "$aac_file" .aac).mp3
+	wav_file=/tmp/aac2mp3.wav
+	ffmpeg -i "$aac_file" "$wav_file" && \
+	ffmpeg -i "$wav_file" -acodec libmp3lame "$mp3_file" && \
+	rm "$wav_file"
+}
+
+function f() {
+	if [ "$#" -eq 0 ]; then
+		echo 'Find what?'
+		return 0
+	fi
+
+	local DOT_FILE=".grepignore"
+	local MAX_LINE_LENGTH=$(($COLUMNS * 3))
+
+	local IGNORE_DIRS=".git .svn node_modules bower_components"
+	local IGNORE_FILES=".bash_history .viminfo"
+	local EXCLUDE_DIR_CLAUSE=""
+	local EXCLUDE_CLAUSE=""
+
+	if [ -f $DOT_FILE ]; then
+		IGNORE_DIRS+=" $(echo $(grep '/$' $DOT_FILE | sed 's|/$||'))"
+		IGNORE_FILES+=" $(echo $(grep -v '/$' $DOT_FILE))"
+	fi
+
+	for DIR in $IGNORE_DIRS; do
+		EXCLUDE_DIR_CLAUSE+=" --exclude-dir=$DIR"
+	done
+
+	for FILE in $IGNORE_FILES; do
+		EXCLUDE_CLAUSE+=" --exclude=$FILE"
+	done
+
+	local GREP="grep"
+
+	if [ -v DEBUG ]; then
+		GREP="echo grep"
+		MAX_LINE_LENGTH=$(($COLUMNS * 30))
+	fi
+
+	$GREP \
+		--color=${GREP_COLOR:-always} \
+		--line-number \
+		--binary-files=without-match \
+		--recursive \
+		$EXCLUDE_CLAUSE \
+		$EXCLUDE_DIR_CLAUSE "$@" \
+		| cut -c -$MAX_LINE_LENGTH
+}
+
+function togif() {
+	if [ "$#" -eq 0 ]; then
+		echo 'Gif what?'
+		return 0
+	fi
+
+	local input="$1"
+	local filename="${input%.*}"
+
+	ffmpeg -i "$input" -pix_fmt rgb24 -r 10 -f gif - | gifsicle --loopcount=forever --optimize=3 --delay=5 > "$filename.gif"
+}
+
+function inith() {
+	if [ ! -e .bash_history ]; then
+		touch .bash_history
+	else
+		echo ".bash_history already exists"
+	fi
+}
+
+function initv() {
+	local viminfo_config="set viminfo+=n.viminfo"
+	if [ ! -e .vimrc ]; then
+		echo "$viminfo_config" > .vimrc
+	else
+		if grep -F "set viminfo" .vimrc; then
+			echo ".viminfo already configured"
+		else
+			echo "$viminfo_config" >> .vimrc
+			echo ".viminfo configured"
+		fi
+	fi
+}
+
+function svgoo() {
+	if [ "$#" -eq 0 ]; then
+		echo 'Gimme an SVG file to optimize, please!'
+		return 1
+	fi
+
+	if ! which -s svgo; then
+		echo 'I’m not seeing your svgo executable...🤔'
+		return 2
+	fi
+
+	local file="$1"
+	svgo --input="$file" --pretty
+}
+
+function is_interactive_shell() {
+	# https://www.gnu.org/software/bash/manual/html_node/Is-this-Shell-Interactive_003f.html
+	[[ "$-" =~ "i" ]]
+}
+
+if is_interactive_shell; then
+	# fzf git branch name; use like this: git checkout ^g^b
+	bind '"\C-g\C-b": "$(git branch -a | cut -c 3- | fzf)\e\C-e"'
+fi
+
+#fzf
+export FZF_CTRL_T_COMMAND="fd --type f"
+
+function hibp() {
+	local password_hash=`read -s -p "Password: " p && echo -n $p | openssl sha1`
+	local head=${password_hash:0:5}
+	local tail=${password_hash:5}
+
+	local tempfile=`mktemp`
+
+	if curl https://api.pwnedpasswords.com/range/$head --output $tempfile; then
+		if grep --ignore-case $tail $tempfile; then
+			echo YEP;
+		else
+			echo NOPE
+		fi
+	fi
+}
+
+#function log {
+#	local directory=~/Google\ Drive/log
+#	local filename="`LC_ALL=ro_RO.utf-8 date +%F-%H-%M-%a`.txt"
+#	local variation="$1"
+#	local template="template.txt"
+#
+#	if [ $variation ]; then
+#	    template="template-$variation.txt"
+#	fi
+#
+#	cp "$directory/$template" "$directory/$filename"
+#	cd "$directory"
+#	code --new-window . "$filename" && exit
+#}
+
+function skip {
+	tail --lines +$(expr "$1" + 1)
+}
+
+function vimp {
+	file=$1
+	line_number=`expr "$file" : '.*:\([0-9]\+\)'`
+
+	if [[ "$file" =~ :[0-9]*.*$ ]]; then
+		file=${file/$BASH_REMATCH/}
+		line_number=$BASH_REMATCH
+		line_number=${line_number/:/}
+		line_number=${line_number/[^0-9]*/}
+
+		if [[ "$line_number" -ne "" ]]; then
+			line_number="+$line_number"
+		fi
+
+		vim "$file" $line_number
+	else
+		vim "$@"
+	fi
+}
+
+function source_location {
+	shopt -s extdebug
+	declare -F $1
+	shopt -u extdebug
+}
+
+function gfc {
+	local origin_branch_name="$1"
+
+	git fetch origin $origin_branch_name
+	git checkout $origin_branch_name
+	git reset --hard origin/$origin_branch_name
+}
+
+#function s {
+#	local files="$@"
+#
+#	stat -c "%s %n" $files | numfmt --to=iec-i --suffix=B --padding=7
+#}
+
+function second {
+	awk '{ print $2; }'
+}
+
+# Given a list of files to STDIN, will filter out the ones that contain the grep needle.
+function does_not_contain {
+	local needle=$1
+
+	while read file; do
+		grep "$needle" "$file" > /dev/null || echo "$file"
+	done
+}
+
+export -f does_not_contain
+
+function seconds { date -u +%H:%M:%S -d @$1; }
+
+
+
+
+
+# Change working directory to the top-most Finder window location
+#function cdf() { # short for `cdfinder`
+#	cd "$(osascript -e 'tell app "Finder" to POSIX path of (insertion location as alias)')";
+#}
 
 # Create a .tar.gz archive, using `zopfli`, `pigz` or `gzip` for compression
 function targz() {
@@ -44,20 +512,6 @@ function targz() {
 	echo "${tmpFile}.gz ($((zippedSize / 1000)) kB) created successfully.";
 }
 
-# Determine size of a file or total size of a directory
-function fs() {
-	if du -b /dev/null > /dev/null 2>&1; then
-		local arg=-sbh;
-	else
-		local arg=-sh;
-	fi
-	if [[ -n "$@" ]]; then
-		du $arg -- "$@";
-	else
-		du $arg .[^.]* ./*;
-	fi;
-}
-
 # Use Git’s colored diff when available
 hash git &>/dev/null;
 if [ $? -eq 0 ]; then
@@ -86,12 +540,12 @@ function server() {
 
 # Start a PHP server from a directory, optionally specifying the port
 # (Requires PHP 5.4.0+.)
-function phpserver() {
-	local port="${1:-4000}";
-	local ip=$(ipconfig getifaddr en1);
-	sleep 1 && open "http://${ip}:${port}/" &
-	php -S "${ip}:${port}";
-}
+#function phpserver() {
+#	local port="${1:-4000}";
+#	local ip=$(ipconfig getifaddr en1);
+#	sleep 1 && open "http://${ip}:${port}/" &
+#	php -S "${ip}:${port}";
+#}
 
 # Compare original and gzipped file size
 function gz() {

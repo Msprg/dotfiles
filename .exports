@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
 
+# Add `~/bin` to the `$PATH`
+export PATH="$HOME/bin:$PATH";
+
 # Make vim the default editor.
-export EDITOR='vim';
+export EDITOR='nano';
 
 # Enable persistent REPL history for `node`.
-export NODE_REPL_HISTORY=~/.node_history;
+#export NODE_REPL_HISTORY=~/.node_history;
 # Allow 32³ entries; the default is 1000.
-export NODE_REPL_HISTORY_SIZE='32768';
+#export NODE_REPL_HISTORY_SIZE='32768';
 # Use sloppy mode by default, matching web browsers.
-export NODE_REPL_MODE='sloppy';
+#export NODE_REPL_MODE='sloppy';
 
 # Make Python use UTF-8 encoding for output to stdin, stdout, and stderr.
 export PYTHONIOENCODING='UTF-8';
@@ -20,8 +23,8 @@ export HISTFILESIZE="${HISTSIZE}";
 export HISTCONTROL='ignoreboth';
 
 # Prefer US English and use UTF-8.
-export LANG='en_US.UTF-8';
-export LC_ALL='en_US.UTF-8';
+#export LANG='en_US.UTF-8';
+#export LC_ALL='en_US.UTF-8';
 
 # Highlight section titles in manual pages.
 export LESS_TERMCAP_md="${yellow}";
@@ -31,7 +34,14 @@ export MANPAGER='less -X';
 
 # Avoid issues with `gpg` as installed via Homebrew.
 # https://stackoverflow.com/a/42265848/96656
-export GPG_TTY=$(tty);
+#export GPG_TTY=$(tty);
 
 # Hide the “default interactive shell is now zsh” warning on macOS.
-export BASH_SILENCE_DEPRECATION_WARNING=1;
+#export BASH_SILENCE_DEPRECATION_WARNING=1;
+
+export HISTTIMEFORMAT='%Y-%m-%d %T '
+#export MAILCHECK=
+#export LC_CTYPE=en_US.UTF-8
+export CLICOLOR=1
+#export LSCOLORS=GxFxCxDxBxegedabagaced
+#export MANWIDTH=80
