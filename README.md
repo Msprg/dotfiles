@@ -2,7 +2,9 @@
 
 Cherrypicked and merged dotfiles from the following repositories:
 https://github.com/gurdiga/dotfiles
+
 https://github.com/mathiasbynens/dotfiles - forked, served as a basis.
+
 https://github.com/Bash-it/bash-it
 
 I have also removed most of the MacOS stuff as it's redundant and/or irrelevant to me.
