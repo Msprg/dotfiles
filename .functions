@@ -8,9 +8,9 @@ function mkd() {
 # Determine size of a file or total size of a directory
 function fs() {
 	if du -b /dev/null > /dev/null 2>&1; then
-		local arg=-sbh;
+		local arg=-scbhk;
 	else
-		local arg=-sh;
+		local arg=-schk;
 	fi
 	if [[ -n "$@" ]]; then
 		du $arg -- "$@";
@@ -26,7 +26,7 @@ function check_for_local_history {
 	function main {
 		if found_local_history_file; then
 			if [ ! "$PWD" == "$HOME" ]; then
-				echo "Using local Bash history"
+				echo "⌚ Using local Bash history"
 			fi
 
 			use_history_file "$PWD/.bash_history"
@@ -330,6 +330,7 @@ function togif() {
 function inith() {
 	if [ ! -e .bash_history ]; then
 		touch .bash_history
+		check_for_local_history
 	else
 		echo ".bash_history already exists"
 	fi
