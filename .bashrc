@@ -4,4 +4,5 @@ case $- in
       *) return;;
 esac
 
+echo "export DISPLAY=:0" >> ~/.bashrc #for WSL1
 [ -n "$PS1" ] && source ~/.bash_profile;
