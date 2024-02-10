@@ -1,4 +1,9 @@
 #!/bin/bash
+export DOTFILES_DEBUG="false"
+
+[[ $DOTFILES_DEBUG == "true" ]] && echo "[DOTFILE_DBG: --- S T A R T ---]"
+[[ $DOTFILES_DEBUG == "true" ]] && echo "[DOTFILE_DBG: Executing .BASHRC]"
+
 
 [ "$OSTYPE" = "linux-gnueabi" ] && export PS1="    \[\033[0;33m\]\w\[\033[0;37m\] \[\033[0;32m\]ε\[\033[0;37m\]  "
 [ "$OSTYPE" = "linux-gnu" ] && export PS1="    \[\033[0;33m\]\w\[\033[0;37m\] \[\033[0;32m\]Ξ\[\033[0;37m\]  "

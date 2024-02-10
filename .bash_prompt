@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-
+[[ $DOTFILES_DEBUG == true ]] && echo "[DOTFILE_DBG: Executing .BASH_PROMPT]"
 # Shell prompt based on the Solarized Dark theme.
 # Screenshot: http://i.imgur.com/EkEtphC.png
 # Heavily inspired by @necolas’s prompt: https://github.com/necolas/dotfiles
@@ -87,6 +87,7 @@ else
 	orange='\033[38;5;172m';
 	purple="\e[1;35m";
 	red="\e[1;31m";
+	# red="\033[38;5;31m";
 	brightred='\033[38;5;196m';
 	violet="\e[1;35m";
 	white="\e[1;37m";

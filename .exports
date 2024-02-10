@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+[[ $DOTFILES_DEBUG == "true" ]] && echo "[DOTFILE_DBG: Executing .EXPORTS]"
 
 # Add `~/bin` to the `$PATH`
 export PATH="$HOME/bin:$PATH";
