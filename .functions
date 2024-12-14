@@ -419,13 +419,13 @@ fi
 export FZF_CTRL_T_COMMAND="fd --type f"
 
 function hibp() {
-	local password_hash=`read -s -p "Password: " p && echo -n $p | openssl sha1`
+	local password_hash=`read -s -p "Password: " p && echo -n $p | openssl sha1 -r`
 	local head=${password_hash:0:5}
-	local tail=${password_hash:5}
+	local tail=${password_hash:5:30}
 
 	local tempfile=`mktemp`
 
-	if curl https://api.pwnedpasswords.com/range/$head --output $tempfile; then
+	if curl -s https://api.pwnedpasswords.com/range/$head --output $tempfile; then
 		if grep --ignore-case $tail $tempfile; then
 			echo YEP;
 		else
