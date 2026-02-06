@@ -187,11 +187,17 @@ function do_my_checks {
 	timer_stop 			#call asap after acquiring the last exit code
 	if ! changing_directory; then
 		printf "\n"			#newline for easier distinguishing output from prompt
-		printf "%s%-3d " "exit: " "$last_cmd_exit_code" #exit code before the checkmark
-		if [[ $last_cmd_exit_code == 0 ]]; then echo -n "$green$checkmark"; else echo -n "$red$fancyX"; fi
-		echo -ne "$white"
-		# printf " %s%-3d " "exit: " "$last_cmd_exit_code" #exit code after the checkmark
-		echo -ne "  (${timer_show})"
+		local exit_code_buff checkmark_buff combined_buff freecols divider
+		printf -v exit_code_buff "%s%-3d " "exit: " "$last_cmd_exit_code" #exit code before the checkmark
+		if [[ $last_cmd_exit_code == 0 ]]; then
+			printf -v checkmark_buff "%s" "$green$checkmark";
+			else printf -v checkmark_buff "%s" "$red$fancyX";
+		fi
+		printf -v combined_buff "%s%s%s%s" "$exit_code_buff" "$checkmark_buff" "$white" "  (${timer_show})"
+		freecols=$((${COLUMNS:-80} - ${#combined_buff}))
+		divider="$(printf '%*s' "$freecols" '' | tr ' ' '-')"
+		printf "%s%s%s%s" "$combined_buff" "$brightred" "      $divider" "$reset"
+		# echo -ne "  (${timer_show})"
 		return
 	fi
 
