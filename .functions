@@ -51,27 +51,14 @@ function check_for_local_history {
 }
 
 function changing_directory {
-	function main {
-		local last_command=`history 1`
-		local last_command=${last_command:27} # this depends on HISTTIMEFORMAT
-
-		is_cd_nothing || is_cd_something || is_a_cd_alias
-	}
-
-	function is_cd_nothing {
-		[ ${#last_command} -eq 2 -a "${last_command:0:2}" = "cd" ]
-	}
-
-	function is_cd_something {
-		[ ${#last_command} -gt 2 -a "${last_command:0:3}" = "cd " ]
-	}
-
-	function is_a_cd_alias {
-		local cd_aliases=`alias | grep "='cd " | grep -E -o 'alias [a-z]+='`
-		echo $cd_aliases | grep -F -q "alias $last_command="
-	}
-
-	main
+	# Compare current directory with the previously seen one.
+	# This avoids history parsing and alias scans on every prompt while still
+	# catching `cd`, aliases, `pushd/popd`, and any other PWD-changing command.
+	if [[ "$PWD" != "${__dotfiles_last_pwd:-$PWD}" ]]; then
+		__dotfiles_last_pwd="$PWD"
+		return 0
+	fi
+	return 1
 }
 
 #function check_for_nvmrc {
@@ -189,6 +176,7 @@ last_cmd_exit_code=$? # Here to init this env var on the dotfiles load
 # export last_cmd_exit_code
 fancyX='✗'
 checkmark='✓'
+__dotfiles_last_pwd="$PWD"
 
 trap 'timer_start' DEBUG
 function do_my_checks {
