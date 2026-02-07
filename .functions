@@ -140,8 +140,16 @@ function changing_directory {
 
 function check_for_dot_env {
 	# Unload prev .env if any
-	if [ ! -z "$OLDPWD" ] && [ -f "$OLDPWD/.env" ]; then
-		unset $(grep -Po '^(export )?\K\w+' "$OLDPWD/.env")
+	if [ -n "$OLDPWD" ] && [ -f "$OLDPWD/.env" ]; then
+		local env_vars=()
+		while IFS= read -r line; do
+			if [[ "$line" =~ ^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)= ]]; then
+				env_vars+=("${BASH_REMATCH[2]}")
+			fi
+		done < "$OLDPWD/.env"
+		if [ "${#env_vars[@]}" -gt 0 ]; then
+			unset "${env_vars[@]}"
+		fi
 	fi
 
 	if [ -e .env ]; then
