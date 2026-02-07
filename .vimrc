@@ -21,9 +21,11 @@ set gdefault
 set encoding=utf-8 nobomb
 " Change mapleader
 let mapleader=","
-" Don’t add empty newlines at the end of files
-set binary
-set noeol
+" Keep normal text-file semantics and a trailing newline at EOF.
+set nobinary
+if exists("&fixeol")
+	set fixeol
+endif
 " Centralize backups, swapfiles and undo history
 set backupdir=~/.vim/backups
 set directory=~/.vim/swaps
