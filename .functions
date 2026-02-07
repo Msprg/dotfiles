@@ -435,19 +435,30 @@ fi
 export FZF_CTRL_T_COMMAND="fd --type f"
 
 function hibp() {
-	local password_hash=`read -s -p "Password: " p && echo -n $p | openssl sha1 -r`
-	local head=${password_hash:0:5}
-	local tail=${password_hash:5:30}
+	local password_hash
+	local head
+	local tail
+	local tempfile
 
-	local tempfile=`mktemp`
+	echo "This will locally compute hash of entered password, and then send only a part of that hash for verification to haveibeenpwned.com"
+	read -r -s -p "Password: " p
+	password_hash="$(printf '%s' "$p" | openssl sha1 | awk '{print $2}')"
+	unset p
+	echo
+	password_hash="${password_hash^^}"
+	head="${password_hash:0:5}"
+	tail="${password_hash:5:35}"
 
-	if curl -s https://api.pwnedpasswords.com/range/$head --output $tempfile; then
-		if grep --ignore-case $tail $tempfile; then
-			echo YEP;
+	tempfile="$(mktemp)"
+
+	if curl -s "https://api.pwnedpasswords.com/range/$head" --output "$tempfile"; then
+		if grep --ignore-case -q "^${tail}:" "$tempfile"; then
+			echo -e "${ANSI_red_bg}${ANSI_bold}PWNED!${reset}"
 		else
-			echo NOPE
+			echo -e "${ANSI_green_bg}NOT PWNED${reset}"
 		fi
 	fi
+	rm -f "$tempfile"
 }
 
 #function log {
