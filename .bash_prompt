@@ -75,6 +75,14 @@ if tput setaf 1 &> /dev/null; then
 	violet=$(tput setaf 61);
 	white=$(tput setaf 15);
 	yellow=$(tput setaf 136);
+	# Background colors & text attributes
+	ANSI_red_bg=$(tput setab 196);
+	ANSI_green_bg=$(tput setab 34);
+	ANSI_bold=$(tput bold);
+	ANSI_faint=$(tput dim);
+	ANSI_underline=$(tput smul);
+	ANSI_blink=$(tput blink);
+	ANSI_defaults=$(tput sgr0);
 else
 	bold='';
 	reset="\e[0m";
@@ -92,7 +100,16 @@ else
 	violet="\e[1;35m";
 	white="\e[1;37m";
 	yellow="\e[1;33m";
+	# Background colors & text attributes
+	ANSI_red_bg='\033[48;5;196m';
+	ANSI_green_bg='\033[48;5;34m';
+	ANSI_bold='\033[1m';
+	ANSI_faint='\033[2m';
+	ANSI_underline='\033[4m';
+	ANSI_blink='\033[5m';
+	ANSI_defaults='\033[0m';
 fi;
+
 
 # Highlight the user name when logged in as root.
 if [[ "${USER}" == "root" ]]; then
