@@ -159,6 +159,7 @@ function timer_start { timer_start=${timer_start:-$(timer_now)}; }
 
 function timer_stop {
     local delta_us=$((($(timer_now) - $timer_start) / 1000))
+    _last_cmd_us=$delta_us    # raw microseconds, used by do_my_checks
     local us=$((delta_us % 1000))
     local ms=$(((delta_us / 1000) % 1000))
     local s=$(((delta_us / 1000000) % 60))
@@ -194,9 +195,18 @@ function do_my_checks {
 			else printf -v checkmark_buff "%s" "$red$fancyX";
 		fi
 		printf -v combined_buff "%s%s%s%s" "$exit_code_buff" "$checkmark_buff" "$white" "  (${timer_show})"
-		freecols=$((${COLUMNS:-80} - ${#combined_buff}))
-		divider="$(printf '%*s' "$freecols" '' | tr ' ' '-')"
-		printf "%s%s%s%s" "$combined_buff" "$brightred" "      $divider" "$reset"
+		# Show the divider line after commands that produced substantial output.
+		# Exact line counting is not feasible from bash (terminal scrolling makes
+		# cursor-position deltas unreliable), so we use command duration as a
+		# proxy: commands that emit lots of text spend measurable time on I/O.
+		# Threshold is in microseconds (100 000 µs = 100 ms). Tune to taste.
+		if (( _last_cmd_us > 100000 )); then
+			freecols=$((${COLUMNS:-80} - ${#combined_buff}))
+			divider="$(printf '%*s' "$freecols" '' | tr ' ' '-')"
+			printf "%s%s%s%s" "$combined_buff" "$brightred" "      $divider" "$reset"
+		else
+			printf "%s%s" "$combined_buff" "$reset"
+		fi
 		# echo -ne "  (${timer_show})"
 		return
 	fi
