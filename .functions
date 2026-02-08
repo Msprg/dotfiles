@@ -598,14 +598,17 @@ function server() {
 	local port="${1:-8000}";
 	local url="http://localhost:${port}/"
 	local copyparty_cmd=""
+	local copyparty_bin=""
 	local sfx_locations=(
 		"/usr/local/bin/copyparty-sfx.py"
 		"${HOME}/.local/bin/copyparty-sfx.py"
 	)
 
 	# 1) Prefer a PATH-installed copyparty (pipx, package manager, etc.).
-	if command -v copyparty >/dev/null 2>&1; then
-		copyparty_cmd="copyparty"
+	# Use `type -P` so alias/function wrappers don't shadow the real executable.
+	copyparty_bin="$(type -P copyparty 2>/dev/null || true)"
+	if [[ -n "$copyparty_bin" ]]; then
+		copyparty_cmd="$copyparty_bin"
 	else
 		# 2) Look for the standalone SFX in well-known locations.
 		for loc in "${sfx_locations[@]}"; do
@@ -646,11 +649,7 @@ function server() {
 
 	# 4) Periodically check for a newer release (at most once per week).
 	local cmd_path
-	if [[ "$copyparty_cmd" == "copyparty" ]]; then
-		cmd_path="$(command -v copyparty 2>/dev/null)"
-	else
-		cmd_path="$copyparty_cmd"
-	fi
+	cmd_path="$copyparty_cmd"
 	if [[ -n "$cmd_path" && -f "$cmd_path" ]] \
 		&& [[ -n "$(find -L "$cmd_path" -mtime +7 2>/dev/null)" ]]; then
 		local local_ver remote_ver latest_url
