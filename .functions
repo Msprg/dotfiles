@@ -648,6 +648,54 @@ function server() {
 		fi
 	fi
 
+	# 4) Periodically check for a newer release (at most once per week).
+	local cmd_path
+	if [[ "$copyparty_cmd" == "copyparty" ]]; then
+		cmd_path="$(command -v copyparty 2>/dev/null)"
+	else
+		cmd_path="$copyparty_cmd"
+	fi
+	if [[ -n "$cmd_path" && -f "$cmd_path" ]] \
+		&& [[ -n "$(find -L "$cmd_path" -mtime +7 2>/dev/null)" ]]; then
+		local local_ver remote_ver latest_url
+		local_ver="$("$copyparty_cmd" --version 2>&1 \
+			| grep -oE '[0-9]+(\.[0-9]+)+' | head -1)"
+		latest_url="$(curl -fsSL --connect-timeout 3 --max-time 5 \
+			-o /dev/null -w '%{url_effective}' \
+			"https://github.com/9001/copyparty/releases/latest" 2>/dev/null)"
+		remote_ver="$(echo "$latest_url" \
+			| grep -oE '[0-9]+(\.[0-9]+)+' | head -1)"
+
+		if [[ -n "$local_ver" && -n "$remote_ver" ]]; then
+			if [[ "$local_ver" == "$remote_ver" ]]; then
+				# Already up to date — reset the check timer.
+				echo "Already up to date!"
+				touch "$cmd_path" 2>/dev/null
+			else
+				echo "copyparty update available: ${local_ver} → ${remote_ver}"
+				echo "  https://github.com/9001/copyparty/releases/latest"
+				if [[ "$cmd_path" == *copyparty-sfx.py ]]; then
+					read -rp "Update now? [y/N] " update_answer
+					if [[ "$update_answer" =~ ^[Yy]$ ]]; then
+						curl -fsSL --connect-timeout 5 --max-time 30 \
+							"https://github.com/9001/copyparty/releases/latest/download/copyparty-sfx.py" \
+							-o "$cmd_path" && chmod +x "$cmd_path" \
+							&& echo "Updated to ${remote_ver}." \
+							|| echo "Update failed; continuing with current version."
+					fi
+				else
+					echo "  Update with: pipx upgrade copyparty"
+				fi
+				# Touch even if the user declined, to avoid nagging until next period.
+				touch "$cmd_path" 2>/dev/null
+			fi
+		else
+			# Could not determine versions (no internet?); reset timer to avoid
+			# repeated slow checks on every invocation.
+			touch "$cmd_path" 2>/dev/null
+		fi
+	fi
+
 	(
 		sleep 1
 		if command -v xdg-open >/dev/null 2>&1; then
