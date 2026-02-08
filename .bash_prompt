@@ -5,11 +5,13 @@
 # Heavily inspired by @necolas’s prompt: https://github.com/necolas/dotfiles
 # iTerm → Profiles → Text → use 13pt Monaco with 1.1 vertical spacing.
 
-if [[ $COLORTERM = gnome-* && $TERM = xterm ]] && infocmp gnome-256color >/dev/null 2>&1; then
-	export TERM='gnome-256color';
-elif infocmp xterm-256color >/dev/null 2>&1; then
-	export TERM='xterm-256color';
-fi;
+if [[ "${DOTFILES_FEATURE_CUSTOM_PROMPT:-true}" == "true" ]]; then
+	if [[ $COLORTERM = gnome-* && $TERM = xterm ]] && infocmp gnome-256color >/dev/null 2>&1; then
+		export TERM='gnome-256color';
+	elif infocmp xterm-256color >/dev/null 2>&1; then
+		export TERM='xterm-256color';
+	fi;
+fi
 
 prompt_git() {
 	local s='';
@@ -111,6 +113,10 @@ else
 	ANSI_blink='\033[5m';
 	ANSI_defaults='\033[0m';
 fi;
+
+if [[ "${DOTFILES_FEATURE_CUSTOM_PROMPT:-true}" != "true" ]]; then
+	return 0
+fi
 
 
 # Highlight the user name when logged in as root.

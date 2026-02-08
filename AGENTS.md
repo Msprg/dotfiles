@@ -7,12 +7,14 @@ agent work. It is meant to save you from surprises when running commands.
 
 The main shell entry point is `.bash_profile`, which sources config in this order:
 
-`~/.path` → `.bash_prompt` → `.exports` → `.functions` → `.extra` →
+`~/.path` → `.dotfiles_features` → `.bash_prompt` → `.exports` → `.functions` → `.extra` →
 `.systemspecific` → `.aliases/bash/aliases`
 
 Notes:
 - `.bashrc` only sources `.bash_profile` for interactive shells.
 - If you need custom PATH or private overrides, use `~/.path` and `~/.extra`.
+- Feature toggles and profile defaults live in `~/.dotfiles_features`; optional
+  machine-local overrides can be placed in `~/.dotfiles_features.local`.
 
 ## Behavior That Affects Automation
 
@@ -21,8 +23,8 @@ Notes:
   unexpectedly.
 - **Per-directory Bash history**: if `.bash_history` exists in a directory, it
   becomes the active history file.
-- **Prompt hooks**: `PROMPT_COMMAND` is set to run checks after every command
-  (exit status, timing, env/history checks).
+- **Prompt hooks**: `PROMPT_COMMAND` can run checks after every command (exit
+  status, timing, env/history checks), depending on feature flags.
 - **Debug**: set `DOTFILES_DEBUG="true"` to log load steps.
 - **Safe mode**: set `BASH_SAFE_MODE="true"` (or run `safe_reload`) to start a
   minimal shell that only loads `~/.path` and `~/.exports`. This skips the
@@ -66,4 +68,3 @@ Use `set -- -f; source bootstrap.sh` to skip confirmation.
 - `.tmux.conf`: tmux prefix and keybindings
 - `.curlrc` / `.wgetrc`: networking defaults
 - `.macos.disabled` / `.osx.disabled`: macOS settings (not applied on Linux)
-

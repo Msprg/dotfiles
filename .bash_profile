@@ -1,16 +1,8 @@
 #!/bin/bash
-export DOTFILES_DEBUG="false"
+# export DOTFILES_DEBUG="false"
 
 [[ $DOTFILES_DEBUG == "true" ]] && echo "[DOTFILE_DBG: --- S T A R T ---]"
 [[ $DOTFILES_DEBUG == "true" ]] && echo "[DOTFILE_DBG: Executing .BASHRC]"
-
-
-[ "$OSTYPE" = "linux-gnueabi" ] && export PS1="    \[\033[0;33m\]\w\[\033[0;37m\] \[\033[0;32m\]ε\[\033[0;37m\]  "
-[ "$OSTYPE" = "linux-gnu" ] && export PS1="    \[\033[0;33m\]\w\[\033[0;37m\] \[\033[0;32m\]Ξ\[\033[0;37m\]  "
-[[ $OSTYPE =~ ^darwin ]] && export PS1="    \[\033[0;33m\]\w\[\033[0;37m\] \[\033[0;35m\]ɀ\[\033[0;37m\]  "
-[ "`whoami`" = "msprg" ] && export PS1="    \[\033[0;33m\]\w\[\033[0;37m\] \[\033[1;33m\]ω\[\033[0;37m\]  "
-
-echo -n -e "\033]0;`whoami`@`hostname -f`\007"
 
 # Cause the status of terminated background jobs to be reported immediately,
 # rather than before printing the next primary prompt.
@@ -40,11 +32,16 @@ if [[ "$BASH_SAFE_MODE" == "true" ]]; then
 	alias safe_reload="exec bash -c 'export BASH_SAFE_MODE=true; exec bash --login'"
 else
 
-for file in ~/.{path,bash_prompt,exports,functions,extra,systemspecific}; do
-	[ -r "$file" ] && [ -f "$file" ] && source "$file";
-done;
-[ -r "$HOME/.aliases/bash/aliases" ] && [ -f "$HOME/.aliases/bash/aliases" ] && source "$HOME/.aliases/bash/aliases";
-unset file;
+	for file in ~/.{path,dotfiles_features,bash_prompt,exports,functions,extra,systemspecific}; do
+		[ -r "$file" ] && [ -f "$file" ] && source "$file";
+	done;
+
+	if [[ "$DOTFILES_FEATURE_SET_TERMINAL_TITLE" == "true" ]]; then
+		echo -n -e "\033]0;$(whoami)@$(hostname -f)\007";
+	fi
+
+	[ -r "$HOME/.aliases/bash/aliases" ] && [ -f "$HOME/.aliases/bash/aliases" ] && source "$HOME/.aliases/bash/aliases";
+	unset file;
 
 shopt -s extglob
 # keeps newlines in multi-line commands

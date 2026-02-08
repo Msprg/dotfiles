@@ -1,0 +1,5 @@
+# Local dotfiles feature overrides.
+# Uncomment one profile line:
+# DOTFILES_FEATURE_PROFILE=full
+# DOTFILES_FEATURE_PROFILE=light
+# DOTFILES_FEATURE_PROFILE=minimal

@@ -153,23 +153,45 @@ function timer_now { date +%s%N; }
 function timer_start { timer_start=${timer_start:-$(timer_now)}; }
 
 function timer_stop {
-    local delta_us=$((($(timer_now) - $timer_start) / 1000))
-    _last_cmd_us=$delta_us    # raw microseconds, used by do_my_checks
-    local us=$((delta_us % 1000))
-    local ms=$(((delta_us / 1000) % 1000))
-    local s=$(((delta_us / 1000000) % 60))
-    local m=$(((delta_us / 60000000) % 60))
-    local h=$((delta_us / 3600000000))
-    # Goal: always show around 3 digits of accuracy
-    if ((h > 0)); then timer_show=${h}h${m}m
-    elif ((m > 0)); then timer_show=${m}m${s}s
-    elif ((s >= 10)); then timer_show=${s}.$((ms / 100))s
-    elif ((s > 0)); then timer_show=${s}.$(printf %03d $ms)s
-    elif ((ms >= 100)); then timer_show=${ms}ms
-    elif ((ms > 0)); then timer_show=${ms}.$((us / 100))ms
-    else timer_show=${us}us
-    fi
-    unset timer_start
+	if [[ "${DOTFILES_FEATURE_TRACK_COMMAND_DURATION:-true}" != "true" ]]; then
+		_last_cmd_us=0
+		timer_show='0us'
+		unset timer_start
+		return 0
+	fi
+
+	if [ -z "${timer_start:-}" ]; then
+		_last_cmd_us=0
+		timer_show='0us'
+		return 0
+	fi
+
+	local delta_us=$((($(timer_now) - timer_start) / 1000))
+	_last_cmd_us=$delta_us # raw microseconds, used by do_my_checks
+	local us=$((delta_us % 1000))
+	local ms=$(((delta_us / 1000) % 1000))
+	local s=$(((delta_us / 1000000) % 60))
+	local m=$(((delta_us / 60000000) % 60))
+	local h=$((delta_us / 3600000000))
+
+	# Goal: always show around 3 digits of accuracy.
+	if ((h > 0)); then
+		timer_show=${h}h${m}m
+	elif ((m > 0)); then
+		timer_show=${m}m${s}s
+	elif ((s >= 10)); then
+		timer_show=${s}.$((ms / 100))s
+	elif ((s > 0)); then
+		timer_show=${s}.$(printf %03d "$ms")s
+	elif ((ms >= 100)); then
+		timer_show=${ms}ms
+	elif ((ms > 0)); then
+		timer_show=${ms}.$((us / 100))ms
+	else
+		timer_show=${us}us
+	fi
+
+	unset timer_start
 }
 
 last_cmd_exit_code=$? # Here to init this env var on the dotfiles load
@@ -178,39 +200,118 @@ fancyX='✗'
 checkmark='✓'
 __dotfiles_last_pwd="$PWD"
 
-trap 'timer_start' DEBUG
+if [[ "${DOTFILES_FEATURE_TRACK_COMMAND_DURATION:-true}" == "true" ]]; then
+	trap 'timer_start' DEBUG
+fi
+
 function do_my_checks {
 	last_cmd_exit_code=$? # Must come as first command of PROMPT_COMMAND!
-	timer_stop 			#call asap after acquiring the last exit code
+	timer_stop # call asap after acquiring the last exit code
+
 	if ! changing_directory; then
-		printf "\n"			#newline for easier distinguishing output from prompt
-		local exit_code_buff checkmark_buff combined_buff freecols divider
-		printf -v exit_code_buff "%s%-3d " "exit: " "$last_cmd_exit_code" #exit code before the checkmark
-		if [[ $last_cmd_exit_code == 0 ]]; then
-			printf -v checkmark_buff "%s" "$green$checkmark";
-			else printf -v checkmark_buff "%s" "$red$fancyX";
+		local long_threshold_us divider_threshold_us metadata_mode
+		local should_show_metadata='false'
+		local should_show_divider='false'
+		local command_is_long='false'
+		local combined_buff=''
+		local freecols divider
+
+		local c_green="${green:-$'\033[1;32m'}"
+		local c_red="${red:-$'\033[1;31m'}"
+		local c_white="${white:-$'\033[1;37m'}"
+		local c_brightred="${brightred:-$'\033[38;5;196m'}"
+		local c_reset="${reset:-$'\033[0m'}"
+
+		long_threshold_us="${DOTFILES_FEATURE_PROMPT_LONG_COMMAND_US:-100000}"
+		divider_threshold_us="${DOTFILES_FEATURE_PROMPT_DIVIDER_THRESHOLD_US:-100000}"
+		metadata_mode="${DOTFILES_FEATURE_PROMPT_METADATA_MODE:-always}"
+
+		[[ "$long_threshold_us" =~ ^[0-9]+$ ]] || long_threshold_us=100000
+		[[ "$divider_threshold_us" =~ ^[0-9]+$ ]] || divider_threshold_us=100000
+
+		if (( _last_cmd_us > long_threshold_us )); then
+			command_is_long='true'
 		fi
-		printf -v combined_buff "%s%s%s%s" "$exit_code_buff" "$checkmark_buff" "$white" "  (${timer_show})"
-		# Show the divider line after commands that produced substantial output.
+
+		if [[ "${DOTFILES_FEATURE_PROMPT_METADATA:-true}" == "true" ]]; then
+			case "$metadata_mode" in
+				always)
+					should_show_metadata='true'
+					;;
+				smart)
+					if [[ "$command_is_long" == "true" ]]; then
+						should_show_metadata='true'
+					elif [[ "${DOTFILES_FEATURE_PROMPT_SHOW_ON_ERROR:-true}" == "true" && "$last_cmd_exit_code" -ne 0 ]]; then
+						should_show_metadata='true'
+					fi
+					;;
+			esac
+		fi
+
+		if [[ "$should_show_metadata" == "true" && "${DOTFILES_FEATURE_PROMPT_SHOW_EXIT_CODE:-true}" == "true" ]]; then
+			printf -v combined_buff "%sexit: %-3d" "$combined_buff" "$last_cmd_exit_code"
+		fi
+
+		if [[ "$should_show_metadata" == "true" && "${DOTFILES_FEATURE_PROMPT_SHOW_STATUS_SYMBOL:-true}" == "true" ]]; then
+			if [ -n "$combined_buff" ]; then
+				combined_buff+=" "
+			fi
+			if [[ "$last_cmd_exit_code" == 0 ]]; then
+				combined_buff+="${c_green}${checkmark}"
+			else
+				combined_buff+="${c_red}${fancyX}"
+			fi
+		fi
+
+		if [[ "$should_show_metadata" == "true" && "${DOTFILES_FEATURE_PROMPT_SHOW_DURATION:-true}" == "true" ]]; then
+			if [ -n "$combined_buff" ]; then
+				combined_buff+="  "
+			fi
+			combined_buff+="${c_white}(${timer_show})"
+		fi
+
+		# Show the divider line after commands that likely produced substantial output.
 		# Exact line counting is not feasible from bash (terminal scrolling makes
-		# cursor-position deltas unreliable), so we use command duration as a
-		# proxy: commands that emit lots of text spend measurable time on I/O.
-		# Threshold is in microseconds (100 000 µs = 100 ms). Tune to taste.
-		if (( _last_cmd_us > 100000 )); then
-			freecols=$((${COLUMNS:-80} - ${#combined_buff}))
-			divider="$(printf '%*s' "$freecols" '' | tr ' ' '-')"
-			printf "%s%s%s%s" "$combined_buff" "$brightred" "      $divider" "$reset"
-		else
-			printf "%s%s" "$combined_buff" "$reset"
+		# cursor-position deltas unreliable), so command duration is used as proxy.
+		if [[ "${DOTFILES_FEATURE_PROMPT_SHOW_DIVIDER:-true}" == "true" ]] && (( _last_cmd_us > divider_threshold_us )); then
+			should_show_divider='true'
 		fi
-		# echo -ne "  (${timer_show})"
+
+		if [ -n "$combined_buff" ] || [[ "$should_show_divider" == "true" ]]; then
+			printf "\n" # separate command output from metadata/prompt
+		fi
+
+		if [ -n "$combined_buff" ]; then
+			printf "%s" "$combined_buff"
+		fi
+
+		if [[ "$should_show_divider" == "true" ]]; then
+			freecols=$((${COLUMNS:-80} - ${#combined_buff}))
+			(( freecols < 1 )) && freecols=1
+			divider="$(printf '%*s' "$freecols" '' | tr ' ' '-')"
+
+			if [ -n "$combined_buff" ]; then
+				printf "%s%s%s" "$c_brightred" "      $divider" "$c_reset"
+			else
+				printf "%s%s%s" "$c_brightred" "$divider" "$c_reset"
+			fi
+		elif [ -n "$combined_buff" ]; then
+			printf "%s" "$c_reset"
+		fi
+
 		return
 	fi
 
-	check_for_local_history
+	if [[ "${DOTFILES_FEATURE_LOCAL_HISTORY:-true}" == "true" ]]; then
+		check_for_local_history
+	fi
+
 #	check_for_nvmrc
 #	check_for_ruby_version
-	check_for_dot_env
+	if [[ "${DOTFILES_FEATURE_AUTO_DOT_ENV:-true}" == "true" ]]; then
+		check_for_dot_env
+	fi
+
 #	set_macos_terminal_tab_title
 }
 
@@ -237,7 +338,105 @@ function add_prompt_command {
 
 	main
 }
-add_prompt_command
+
+function remove_prompt_command {
+	local current_prompt_command="${PROMPT_COMMAND:-}"
+	local rebuilt_prompt_command=''
+	local prompt_part
+	local prompt_parts=()
+
+	IFS=';' read -r -a prompt_parts <<< "$current_prompt_command"
+	for prompt_part in "${prompt_parts[@]}"; do
+		prompt_part="${prompt_part#"${prompt_part%%[![:space:]]*}"}"
+		prompt_part="${prompt_part%"${prompt_part##*[![:space:]]}"}"
+
+		if [ -z "$prompt_part" ] || [ "$prompt_part" = 'do_my_checks' ]; then
+			continue
+		fi
+
+		if [ -z "$rebuilt_prompt_command" ]; then
+			rebuilt_prompt_command="$prompt_part"
+		else
+			rebuilt_prompt_command="${rebuilt_prompt_command};${prompt_part}"
+		fi
+	done
+
+	PROMPT_COMMAND="$rebuilt_prompt_command"
+}
+
+if [[ "${DOTFILES_FEATURE_PROMPT_HOOKS:-true}" == "true" ]]; then
+	add_prompt_command
+else
+	remove_prompt_command
+fi
+
+function dotfiles_profile {
+	local requested_profile="$1"
+	local local_features_file="$HOME/.dotfiles_features.local"
+	local tmpfile
+
+	case "$requested_profile" in
+		''|show|current)
+			echo "Session profile: ${DOTFILES_FEATURE_PROFILE:-full}"
+			if [ -f "$local_features_file" ]; then
+				if grep -qE '^[[:space:]]*DOTFILES_FEATURE_PROFILE=' "$local_features_file"; then
+					echo "Local override ($(basename "$local_features_file")):"
+					grep -E '^[[:space:]]*DOTFILES_FEATURE_PROFILE=' "$local_features_file" | tail -n 1
+				else
+					echo "Local override file exists, but no active DOTFILES_FEATURE_PROFILE line is set."
+				fi
+			else
+				echo "No local override file found."
+			fi
+			;;
+		full|light|minimal)
+			if [ ! -f "$local_features_file" ]; then
+				cat > "$local_features_file" << 'EOF'
+# Local dotfiles feature overrides.
+# Uncomment or set the profile you want:
+# DOTFILES_FEATURE_PROFILE=full
+# DOTFILES_FEATURE_PROFILE=light
+# DOTFILES_FEATURE_PROFILE=minimal
+EOF
+			fi
+			tmpfile="$(mktemp)" || return 1
+			awk -v profile="$requested_profile" '
+				BEGIN { profile_set=0 }
+				/^[[:space:]]*DOTFILES_FEATURE_PROFILE=/ {
+					if (profile_set == 0) {
+						print "DOTFILES_FEATURE_PROFILE=" profile
+						profile_set=1
+					}
+					next
+				}
+				{ print }
+				END {
+					if (profile_set == 0) {
+						print "DOTFILES_FEATURE_PROFILE=" profile
+					}
+				}
+			' "$local_features_file" > "$tmpfile" && mv "$tmpfile" "$local_features_file"
+			echo "Set profile to '$requested_profile' in $local_features_file"
+			echo "Run: reload"
+			;;
+		reset|default)
+			if [ ! -f "$local_features_file" ]; then
+				echo "No local profile override file to reset at $local_features_file"
+				return 0
+			fi
+			tmpfile="$(mktemp)" || return 1
+			awk '
+				!/^[[:space:]]*DOTFILES_FEATURE_PROFILE=/
+			' "$local_features_file" > "$tmpfile" && mv "$tmpfile" "$local_features_file"
+			echo "Removed active DOTFILES_FEATURE_PROFILE override from $local_features_file"
+			echo "Run: reload"
+			;;
+		*)
+			echo "Usage: dotfiles_profile [show|full|light|minimal|reset]"
+			return 1
+			;;
+	esac
+}
 
 #export RUBY_GC_MALLOC_LIMIT=90000000
 #export RUBY_GC_HEAP_FREE_SLOTS=200000

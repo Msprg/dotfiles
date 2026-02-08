@@ -40,7 +40,11 @@ export MANPAGER='less -X';
 # Hide the “default interactive shell is now zsh” warning on macOS.
 #export BASH_SILENCE_DEPRECATION_WARNING=1;
 
-export HISTTIMEFORMAT='%Y-%m-%d %T '
+if [[ "${DOTFILES_FEATURE_HISTORY_TIMESTAMPS:-true}" == "true" ]]; then
+	export HISTTIMEFORMAT='%Y-%m-%d %T '
+else
+	unset HISTTIMEFORMAT
+fi
 #export MAILCHECK=
 #export LC_CTYPE=en_US.UTF-8
 export CLICOLOR=1

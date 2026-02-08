@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+[[ $DOTFILES_DEBUG == "true" ]] && echo "[DOTFILE_DBG: Executing .DOTFILES_FEATURES]"
+
+# Centralized feature switches for shell behavior.
+# Supported profiles:
+# - full  (default): existing rich prompt and command metadata behavior
+# - light: near-vanilla prompt, metadata only when relevant
+
+: "${DOTFILES_FEATURE_PROFILE:=full}"
+
+case "$DOTFILES_FEATURE_PROFILE" in
+	light|minimal)
+		: "${DOTFILES_FEATURE_CUSTOM_PROMPT:=false}"
+		: "${DOTFILES_FEATURE_PROMPT_HOOKS:=true}"
+		: "${DOTFILES_FEATURE_PROMPT_METADATA:=true}"
+		: "${DOTFILES_FEATURE_PROMPT_METADATA_MODE:=smart}" # always|smart|never
+		: "${DOTFILES_FEATURE_PROMPT_SHOW_ON_ERROR:=false}"
+		: "${DOTFILES_FEATURE_PROMPT_SHOW_EXIT_CODE:=false}"
+		: "${DOTFILES_FEATURE_PROMPT_SHOW_STATUS_SYMBOL:=false}"
+		: "${DOTFILES_FEATURE_PROMPT_SHOW_DURATION:=true}"
+		: "${DOTFILES_FEATURE_PROMPT_SHOW_DIVIDER:=true}"
+		: "${DOTFILES_FEATURE_PROMPT_LONG_COMMAND_US:=750000}"
+		: "${DOTFILES_FEATURE_PROMPT_DIVIDER_THRESHOLD_US:=100000}"
+		: "${DOTFILES_FEATURE_SET_TERMINAL_TITLE:=true}"
+		: "${DOTFILES_FEATURE_TRACK_COMMAND_DURATION:=true}"
+		: "${DOTFILES_FEATURE_LOCAL_HISTORY:=true}"
+		: "${DOTFILES_FEATURE_AUTO_DOT_ENV:=true}"
+		: "${DOTFILES_FEATURE_HISTORY_TIMESTAMPS:=true}"
+		;;
+	*)
+		: "${DOTFILES_FEATURE_PROFILE:=full}"
+		: "${DOTFILES_FEATURE_CUSTOM_PROMPT:=true}"
+		: "${DOTFILES_FEATURE_PROMPT_HOOKS:=true}"
+		: "${DOTFILES_FEATURE_PROMPT_METADATA:=true}"
+		: "${DOTFILES_FEATURE_PROMPT_METADATA_MODE:=always}" # always|smart|never
+		: "${DOTFILES_FEATURE_PROMPT_SHOW_ON_ERROR:=true}"
+		: "${DOTFILES_FEATURE_PROMPT_SHOW_EXIT_CODE:=true}"
+		: "${DOTFILES_FEATURE_PROMPT_SHOW_STATUS_SYMBOL:=true}"
+		: "${DOTFILES_FEATURE_PROMPT_SHOW_DURATION:=true}"
+		: "${DOTFILES_FEATURE_PROMPT_SHOW_DIVIDER:=true}"
+		: "${DOTFILES_FEATURE_PROMPT_LONG_COMMAND_US:=100000}"
+		: "${DOTFILES_FEATURE_PROMPT_DIVIDER_THRESHOLD_US:=100000}"
+		: "${DOTFILES_FEATURE_SET_TERMINAL_TITLE:=true}"
+		: "${DOTFILES_FEATURE_TRACK_COMMAND_DURATION:=true}"
+		: "${DOTFILES_FEATURE_LOCAL_HISTORY:=true}"
+		: "${DOTFILES_FEATURE_AUTO_DOT_ENV:=true}"
+		: "${DOTFILES_FEATURE_HISTORY_TIMESTAMPS:=true}"
+		;;
+esac
+
+# Optional machine-local override file (not committed by default).
+if [ -r "$HOME/.dotfiles_features.local" ] && [ -f "$HOME/.dotfiles_features.local" ]; then
+	source "$HOME/.dotfiles_features.local"
+fi
+
+function _normalize_dotfiles_bool_var() {
+	local var_name="$1"
+	local var_value="${!var_name}"
+
+	case "$var_value" in
+		1|[Tt][Rr][Uu][Ee]|[Yy][Ee][Ss]|[Oo][Nn]) var_value='true' ;;
+		*) var_value='false' ;;
+	esac
+
+	printf -v "$var_name" '%s' "$var_value"
+	export "$var_name"
+}
+
+for bool_var in \
+	DOTFILES_FEATURE_CUSTOM_PROMPT \
+	DOTFILES_FEATURE_PROMPT_HOOKS \
+	DOTFILES_FEATURE_PROMPT_METADATA \
+	DOTFILES_FEATURE_PROMPT_SHOW_ON_ERROR \
+	DOTFILES_FEATURE_PROMPT_SHOW_EXIT_CODE \
+	DOTFILES_FEATURE_PROMPT_SHOW_STATUS_SYMBOL \
+	DOTFILES_FEATURE_PROMPT_SHOW_DURATION \
+	DOTFILES_FEATURE_PROMPT_SHOW_DIVIDER \
+	DOTFILES_FEATURE_SET_TERMINAL_TITLE \
+	DOTFILES_FEATURE_TRACK_COMMAND_DURATION \
+	DOTFILES_FEATURE_LOCAL_HISTORY \
+	DOTFILES_FEATURE_AUTO_DOT_ENV \
+	DOTFILES_FEATURE_HISTORY_TIMESTAMPS; do
+	_normalize_dotfiles_bool_var "$bool_var"
+done
+
+case "$DOTFILES_FEATURE_PROMPT_METADATA_MODE" in
+	[Aa][Ll][Ww][Aa][Yy][Ss]) DOTFILES_FEATURE_PROMPT_METADATA_MODE='always' ;;
+	[Ss][Mm][Aa][Rr][Tt]) DOTFILES_FEATURE_PROMPT_METADATA_MODE='smart' ;;
+	[Nn][Ee][Vv][Ee][Rr]) DOTFILES_FEATURE_PROMPT_METADATA_MODE='never' ;;
+	*) DOTFILES_FEATURE_PROMPT_METADATA_MODE='always' ;;
+esac
+
+if ! [[ "$DOTFILES_FEATURE_PROMPT_LONG_COMMAND_US" =~ ^[0-9]+$ ]]; then
+	DOTFILES_FEATURE_PROMPT_LONG_COMMAND_US=100000
+fi
+
+if ! [[ "$DOTFILES_FEATURE_PROMPT_DIVIDER_THRESHOLD_US" =~ ^[0-9]+$ ]]; then
+	DOTFILES_FEATURE_PROMPT_DIVIDER_THRESHOLD_US=100000
+fi
+
+export DOTFILES_FEATURE_PROFILE
+export DOTFILES_FEATURE_PROMPT_METADATA_MODE
+export DOTFILES_FEATURE_PROMPT_LONG_COMMAND_US
+export DOTFILES_FEATURE_PROMPT_DIVIDER_THRESHOLD_US
+
+unset bool_var
+unset -f _normalize_dotfiles_bool_var
