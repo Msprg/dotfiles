@@ -1,8 +1,14 @@
 #!/bin/bash
 # export DOTFILES_DEBUG="false"
 
-[[ $DOTFILES_DEBUG == "true" ]] && echo "[DOTFILE_DBG: --- S T A R T ---]"
-[[ $DOTFILES_DEBUG == "true" ]] && echo "[DOTFILE_DBG: Executing .BASHRC]"
+if ! declare -F dotfiles_dbg > /dev/null; then
+	function dotfiles_dbg {
+		[[ "$DOTFILES_DEBUG" == "true" ]] && printf '[DOTFILE_DBG: %s]\n' "$*"
+	}
+fi
+
+dotfiles_dbg "--- S T A R T ---"
+dotfiles_dbg "Executing .BASH_PROFILE"
 
 # Cause the status of terminated background jobs to be reported immediately,
 # rather than before printing the next primary prompt.
@@ -13,10 +19,16 @@ set -b
 # * ~/.path can be used to extend `$PATH`.
 # * ~/.extra can be used for other settings you don’t want to commit.
 if [[ "$BASH_SAFE_MODE" == "true" ]]; then
+	dotfiles_dbg "BASH_SAFE_MODE=true; entering safe mode load path"
 	# Safe mode: load only essential configuration (PATH, exports, basic shell options).
 	# Skips: prompt, functions, aliases, completions, PROMPT_COMMAND hooks.
 	for file in ~/.{path,exports}; do
-		[ -r "$file" ] && [ -f "$file" ] && source "$file"
+		if [ -r "$file" ] && [ -f "$file" ]; then
+			dotfiles_dbg "Sourcing $file"
+			source "$file"
+		else
+			dotfiles_dbg "Skipping missing/unreadable $file"
+		fi
 	done
 	unset file
 
@@ -28,20 +40,57 @@ if [[ "$BASH_SAFE_MODE" == "true" ]]; then
 	export PS1
 
 	# Provide reload/safe_reload so the user can switch back
-	alias reload="unset BASH_SAFE_MODE; exec ${SHELL} -l"
-	alias safe_reload="exec bash -c 'export BASH_SAFE_MODE=true; exec bash --login'"
+	function _dotfiles_unset_runtime_env {
+		local var_name
+
+		while IFS= read -r var_name; do
+			unset "$var_name"
+		done < <(compgen -v | grep -E '^DOTFILES_FEATURE_')
+
+		unset var_name
+		unset PS0 PS1 PS2 PS4 PROMPT_COMMAND
+	}
+
+	function reload {
+		_dotfiles_unset_runtime_env
+		unset BASH_SAFE_MODE DOTFILES_DEBUG DOTFILES_DEBUG_PROMPT_VERBOSE
+		exec "${SHELL:-bash}" -l
+	}
+
+	function safe_reload {
+		_dotfiles_unset_runtime_env
+		unset DOTFILES_DEBUG DOTFILES_DEBUG_PROMPT_VERBOSE
+		export BASH_SAFE_MODE=true
+		exec bash --login
+	}
 else
+	dotfiles_dbg "BASH_SAFE_MODE=false; entering full load path"
 
 	for file in ~/.{path,dotfiles_features,bash_prompt,exports,functions,extra,systemspecific}; do
-		[ -r "$file" ] && [ -f "$file" ] && source "$file";
+		if [ -r "$file" ] && [ -f "$file" ]; then
+			dotfiles_dbg "Sourcing $file"
+			source "$file";
+		else
+			dotfiles_dbg "Skipping missing/unreadable $file"
+		fi
 	done;
 
 	if [[ "$DOTFILES_FEATURE_SET_TERMINAL_TITLE" == "true" ]]; then
+		dotfiles_dbg "DOTFILES_FEATURE_SET_TERMINAL_TITLE=true; setting terminal title"
 		echo -n -e "\033]0;$(whoami)@$(hostname -f)\007";
+	else
+		dotfiles_dbg "DOTFILES_FEATURE_SET_TERMINAL_TITLE=false; leaving terminal title unchanged"
 	fi
 
-	[ -r "$HOME/.aliases/bash/aliases" ] && [ -f "$HOME/.aliases/bash/aliases" ] && source "$HOME/.aliases/bash/aliases";
+	if [ -r "$HOME/.aliases/bash/aliases" ] && [ -f "$HOME/.aliases/bash/aliases" ]; then
+		dotfiles_dbg "Sourcing $HOME/.aliases/bash/aliases"
+		source "$HOME/.aliases/bash/aliases";
+	else
+		dotfiles_dbg "Skipping missing/unreadable $HOME/.aliases/bash/aliases"
+	fi
 	unset file;
+
+	dotfiles_dbg "Feature summary: profile=${DOTFILES_FEATURE_PROFILE:-unset}, custom_prompt=${DOTFILES_FEATURE_CUSTOM_PROMPT:-unset}, prompt_hooks=${DOTFILES_FEATURE_PROMPT_HOOKS:-unset}, metadata_mode=${DOTFILES_FEATURE_PROMPT_METADATA_MODE:-unset}"
 
 shopt -s extglob
 # keeps newlines in multi-line commands
@@ -65,6 +114,8 @@ shopt -s checkwinsize
 for option in autocd globstar; do
 	shopt -s "$option" 2> /dev/null;
 done;
+
+dotfiles_dbg "Basic shell options applied"
 
 
 
@@ -291,5 +342,7 @@ unset alias_line alias_name alias_value git_alias_names;
 # Add tab completion for `defaults read|write NSGlobalDomain`
 # You could just use `-g` instead, but I like being explicit
 #complete -W "NSGlobalDomain" defaults;
+
+dotfiles_dbg "Full interactive load path completed"
 
 fi # end BASH_SAFE_MODE check

@@ -1,56 +1,99 @@
 #!/usr/bin/env bash
 [[ $DOTFILES_DEBUG == "true" ]] && echo "[DOTFILE_DBG: Executing .DOTFILES_FEATURES]"
 
+if ! declare -F dotfiles_dbg > /dev/null; then
+	function dotfiles_dbg {
+		[[ "$DOTFILES_DEBUG" == "true" ]] && printf '[DOTFILE_DBG: %s]\n' "$*"
+	}
+fi
+
 # Centralized feature switches for shell behavior.
 # Supported profiles:
 # - full  (default): existing rich prompt and command metadata behavior
 # - light: near-vanilla prompt, metadata only when relevant
 
-: "${DOTFILES_FEATURE_PROFILE:=full}"
+dotfiles_env_requested_profile="${DOTFILES_FEATURE_PROFILE-<unset>}"
+DOTFILES_FEATURE_PROFILE='full'
+dotfiles_dbg ".dotfiles_features initial DOTFILES_FEATURE_PROFILE=${DOTFILES_FEATURE_PROFILE} (env requested=${dotfiles_env_requested_profile})"
+dotfiles_dbg ".dotfiles_features preexisting env: custom_prompt=${DOTFILES_FEATURE_CUSTOM_PROMPT-<unset>} prompt_hooks=${DOTFILES_FEATURE_PROMPT_HOOKS-<unset>} metadata_mode=${DOTFILES_FEATURE_PROMPT_METADATA_MODE-<unset>} show_exit=${DOTFILES_FEATURE_PROMPT_SHOW_EXIT_CODE-<unset>} show_on_error=${DOTFILES_FEATURE_PROMPT_SHOW_ON_ERROR-<unset>}"
 
+dotfiles_local_features_file="$HOME/.dotfiles_features.local"
+
+# Pass 1: let local file choose a profile.
+if [ -r "$dotfiles_local_features_file" ] && [ -f "$dotfiles_local_features_file" ]; then
+	dotfiles_dbg "Sourcing local overrides (profile pre-pass) from $dotfiles_local_features_file"
+	source "$dotfiles_local_features_file"
+	dotfiles_dbg "After local profile pre-pass: profile=${DOTFILES_FEATURE_PROFILE}"
+else
+	dotfiles_dbg "No local override file at $dotfiles_local_features_file"
+fi
+
+# Apply profile defaults deterministically (do not inherit stale values).
 case "$DOTFILES_FEATURE_PROFILE" in
 	light|minimal)
-		: "${DOTFILES_FEATURE_CUSTOM_PROMPT:=false}"
-		: "${DOTFILES_FEATURE_PROMPT_HOOKS:=true}"
-		: "${DOTFILES_FEATURE_PROMPT_METADATA:=true}"
-		: "${DOTFILES_FEATURE_PROMPT_METADATA_MODE:=smart}" # always|smart|never
-		: "${DOTFILES_FEATURE_PROMPT_SHOW_ON_ERROR:=false}"
-		: "${DOTFILES_FEATURE_PROMPT_SHOW_EXIT_CODE:=false}"
-		: "${DOTFILES_FEATURE_PROMPT_SHOW_STATUS_SYMBOL:=false}"
-		: "${DOTFILES_FEATURE_PROMPT_SHOW_DURATION:=true}"
-		: "${DOTFILES_FEATURE_PROMPT_SHOW_DIVIDER:=true}"
-		: "${DOTFILES_FEATURE_PROMPT_LONG_COMMAND_US:=750000}"
-		: "${DOTFILES_FEATURE_PROMPT_DIVIDER_THRESHOLD_US:=100000}"
-		: "${DOTFILES_FEATURE_SET_TERMINAL_TITLE:=true}"
-		: "${DOTFILES_FEATURE_TRACK_COMMAND_DURATION:=true}"
-		: "${DOTFILES_FEATURE_LOCAL_HISTORY:=true}"
-		: "${DOTFILES_FEATURE_AUTO_DOT_ENV:=true}"
-		: "${DOTFILES_FEATURE_HISTORY_TIMESTAMPS:=true}"
+		dotfiles_dbg "Applying profile defaults for '${DOTFILES_FEATURE_PROFILE}'"
+		DOTFILES_FEATURE_CUSTOM_PROMPT='false'
+		DOTFILES_FEATURE_PROMPT_HOOKS='true'
+		DOTFILES_FEATURE_PROMPT_METADATA='true'
+		DOTFILES_FEATURE_PROMPT_METADATA_MODE='smart' # always|smart|never
+		DOTFILES_FEATURE_PROMPT_SHOW_ON_ERROR='false'
+		DOTFILES_FEATURE_PROMPT_SHOW_EXIT_CODE='false'
+		DOTFILES_FEATURE_PROMPT_SHOW_STATUS_SYMBOL='false'
+		DOTFILES_FEATURE_PROMPT_SHOW_DURATION='true'
+		DOTFILES_FEATURE_PROMPT_SHOW_DIVIDER='true'
+		DOTFILES_FEATURE_PROMPT_LONG_COMMAND_US='750000'
+		DOTFILES_FEATURE_PROMPT_DIVIDER_THRESHOLD_US='100000'
+		DOTFILES_FEATURE_SET_TERMINAL_TITLE='true'
+		DOTFILES_FEATURE_TRACK_COMMAND_DURATION='true'
+		DOTFILES_FEATURE_LOCAL_HISTORY='true'
+		DOTFILES_FEATURE_AUTO_DOT_ENV='true'
+		DOTFILES_FEATURE_HISTORY_TIMESTAMPS='true'
+		;;
+	full)
+		dotfiles_dbg "Applying profile defaults for 'full'"
+		DOTFILES_FEATURE_CUSTOM_PROMPT='true'
+		DOTFILES_FEATURE_PROMPT_HOOKS='true'
+		DOTFILES_FEATURE_PROMPT_METADATA='true'
+		DOTFILES_FEATURE_PROMPT_METADATA_MODE='always' # always|smart|never
+		DOTFILES_FEATURE_PROMPT_SHOW_ON_ERROR='true'
+		DOTFILES_FEATURE_PROMPT_SHOW_EXIT_CODE='true'
+		DOTFILES_FEATURE_PROMPT_SHOW_STATUS_SYMBOL='true'
+		DOTFILES_FEATURE_PROMPT_SHOW_DURATION='true'
+		DOTFILES_FEATURE_PROMPT_SHOW_DIVIDER='true'
+		DOTFILES_FEATURE_PROMPT_LONG_COMMAND_US='100000'
+		DOTFILES_FEATURE_PROMPT_DIVIDER_THRESHOLD_US='100000'
+		DOTFILES_FEATURE_SET_TERMINAL_TITLE='true'
+		DOTFILES_FEATURE_TRACK_COMMAND_DURATION='true'
+		DOTFILES_FEATURE_LOCAL_HISTORY='true'
+		DOTFILES_FEATURE_AUTO_DOT_ENV='true'
+		DOTFILES_FEATURE_HISTORY_TIMESTAMPS='true'
 		;;
 	*)
-		: "${DOTFILES_FEATURE_PROFILE:=full}"
-		: "${DOTFILES_FEATURE_CUSTOM_PROMPT:=true}"
-		: "${DOTFILES_FEATURE_PROMPT_HOOKS:=true}"
-		: "${DOTFILES_FEATURE_PROMPT_METADATA:=true}"
-		: "${DOTFILES_FEATURE_PROMPT_METADATA_MODE:=always}" # always|smart|never
-		: "${DOTFILES_FEATURE_PROMPT_SHOW_ON_ERROR:=true}"
-		: "${DOTFILES_FEATURE_PROMPT_SHOW_EXIT_CODE:=true}"
-		: "${DOTFILES_FEATURE_PROMPT_SHOW_STATUS_SYMBOL:=true}"
-		: "${DOTFILES_FEATURE_PROMPT_SHOW_DURATION:=true}"
-		: "${DOTFILES_FEATURE_PROMPT_SHOW_DIVIDER:=true}"
-		: "${DOTFILES_FEATURE_PROMPT_LONG_COMMAND_US:=100000}"
-		: "${DOTFILES_FEATURE_PROMPT_DIVIDER_THRESHOLD_US:=100000}"
-		: "${DOTFILES_FEATURE_SET_TERMINAL_TITLE:=true}"
-		: "${DOTFILES_FEATURE_TRACK_COMMAND_DURATION:=true}"
-		: "${DOTFILES_FEATURE_LOCAL_HISTORY:=true}"
-		: "${DOTFILES_FEATURE_AUTO_DOT_ENV:=true}"
-		: "${DOTFILES_FEATURE_HISTORY_TIMESTAMPS:=true}"
+		dotfiles_dbg "Unknown DOTFILES_FEATURE_PROFILE='${DOTFILES_FEATURE_PROFILE}', falling back to 'full'"
+		DOTFILES_FEATURE_PROFILE='full'
+		DOTFILES_FEATURE_CUSTOM_PROMPT='true'
+		DOTFILES_FEATURE_PROMPT_HOOKS='true'
+		DOTFILES_FEATURE_PROMPT_METADATA='true'
+		DOTFILES_FEATURE_PROMPT_METADATA_MODE='always'
+		DOTFILES_FEATURE_PROMPT_SHOW_ON_ERROR='true'
+		DOTFILES_FEATURE_PROMPT_SHOW_EXIT_CODE='true'
+		DOTFILES_FEATURE_PROMPT_SHOW_STATUS_SYMBOL='true'
+		DOTFILES_FEATURE_PROMPT_SHOW_DURATION='true'
+		DOTFILES_FEATURE_PROMPT_SHOW_DIVIDER='true'
+		DOTFILES_FEATURE_PROMPT_LONG_COMMAND_US='100000'
+		DOTFILES_FEATURE_PROMPT_DIVIDER_THRESHOLD_US='100000'
+		DOTFILES_FEATURE_SET_TERMINAL_TITLE='true'
+		DOTFILES_FEATURE_TRACK_COMMAND_DURATION='true'
+		DOTFILES_FEATURE_LOCAL_HISTORY='true'
+		DOTFILES_FEATURE_AUTO_DOT_ENV='true'
+		DOTFILES_FEATURE_HISTORY_TIMESTAMPS='true'
 		;;
 esac
 
-# Optional machine-local override file (not committed by default).
-if [ -r "$HOME/.dotfiles_features.local" ] && [ -f "$HOME/.dotfiles_features.local" ]; then
-	source "$HOME/.dotfiles_features.local"
+# Pass 2: re-apply local overrides on top of chosen profile defaults.
+if [ -r "$dotfiles_local_features_file" ] && [ -f "$dotfiles_local_features_file" ]; then
+	dotfiles_dbg "Re-applying local overrides after profile defaults from $dotfiles_local_features_file"
+	source "$dotfiles_local_features_file"
 fi
 
 function _normalize_dotfiles_bool_var() {
@@ -83,6 +126,8 @@ for bool_var in \
 	_normalize_dotfiles_bool_var "$bool_var"
 done
 
+dotfiles_dbg "Post-normalization booleans: custom_prompt=$DOTFILES_FEATURE_CUSTOM_PROMPT prompt_hooks=$DOTFILES_FEATURE_PROMPT_HOOKS metadata=$DOTFILES_FEATURE_PROMPT_METADATA show_exit=$DOTFILES_FEATURE_PROMPT_SHOW_EXIT_CODE show_duration=$DOTFILES_FEATURE_PROMPT_SHOW_DURATION divider=$DOTFILES_FEATURE_PROMPT_SHOW_DIVIDER track_duration=$DOTFILES_FEATURE_TRACK_COMMAND_DURATION"
+
 case "$DOTFILES_FEATURE_PROMPT_METADATA_MODE" in
 	[Aa][Ll][Ww][Aa][Yy][Ss]) DOTFILES_FEATURE_PROMPT_METADATA_MODE='always' ;;
 	[Ss][Mm][Aa][Rr][Tt]) DOTFILES_FEATURE_PROMPT_METADATA_MODE='smart' ;;
@@ -91,10 +136,12 @@ case "$DOTFILES_FEATURE_PROMPT_METADATA_MODE" in
 esac
 
 if ! [[ "$DOTFILES_FEATURE_PROMPT_LONG_COMMAND_US" =~ ^[0-9]+$ ]]; then
+	dotfiles_dbg "Invalid DOTFILES_FEATURE_PROMPT_LONG_COMMAND_US='$DOTFILES_FEATURE_PROMPT_LONG_COMMAND_US'; falling back to 100000"
 	DOTFILES_FEATURE_PROMPT_LONG_COMMAND_US=100000
 fi
 
 if ! [[ "$DOTFILES_FEATURE_PROMPT_DIVIDER_THRESHOLD_US" =~ ^[0-9]+$ ]]; then
+	dotfiles_dbg "Invalid DOTFILES_FEATURE_PROMPT_DIVIDER_THRESHOLD_US='$DOTFILES_FEATURE_PROMPT_DIVIDER_THRESHOLD_US'; falling back to 100000"
 	DOTFILES_FEATURE_PROMPT_DIVIDER_THRESHOLD_US=100000
 fi
 
@@ -103,5 +150,9 @@ export DOTFILES_FEATURE_PROMPT_METADATA_MODE
 export DOTFILES_FEATURE_PROMPT_LONG_COMMAND_US
 export DOTFILES_FEATURE_PROMPT_DIVIDER_THRESHOLD_US
 
+dotfiles_dbg "Resolved feature config: profile=$DOTFILES_FEATURE_PROFILE metadata_mode=$DOTFILES_FEATURE_PROMPT_METADATA_MODE show_on_error=$DOTFILES_FEATURE_PROMPT_SHOW_ON_ERROR long_us=$DOTFILES_FEATURE_PROMPT_LONG_COMMAND_US divider_us=$DOTFILES_FEATURE_PROMPT_DIVIDER_THRESHOLD_US history_timestamps=$DOTFILES_FEATURE_HISTORY_TIMESTAMPS"
+
 unset bool_var
+unset dotfiles_env_requested_profile
+unset dotfiles_local_features_file
 unset -f _normalize_dotfiles_bool_var

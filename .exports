@@ -42,8 +42,10 @@ export MANPAGER='less -X';
 
 if [[ "${DOTFILES_FEATURE_HISTORY_TIMESTAMPS:-true}" == "true" ]]; then
 	export HISTTIMEFORMAT='%Y-%m-%d %T '
+	[[ "$DOTFILES_DEBUG" == "true" ]] && echo "[DOTFILE_DBG: .EXPORTS enabled HISTTIMEFORMAT]"
 else
 	unset HISTTIMEFORMAT
+	[[ "$DOTFILES_DEBUG" == "true" ]] && echo "[DOTFILE_DBG: .EXPORTS disabled HISTTIMEFORMAT]"
 fi
 #export MAILCHECK=
 #export LC_CTYPE=en_US.UTF-8
