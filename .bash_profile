@@ -20,6 +20,26 @@ set -b
 # Load the shell dotfiles, and then some:
 # * ~/.path can be used to extend `$PATH`.
 # * ~/.extra can be used for other settings you don’t want to commit.
+if [[ "$BASH_SAFE_MODE" == "true" ]]; then
+	# Safe mode: load only essential configuration (PATH, exports, basic shell options).
+	# Skips: prompt, functions, aliases, completions, PROMPT_COMMAND hooks.
+	for file in ~/.{path,exports}; do
+		[ -r "$file" ] && [ -f "$file" ] && source "$file"
+	done
+	unset file
+
+	# Basic shell options
+	shopt -s histappend checkwinsize
+
+	# Safe mode prompt so you know you're in minimal mode
+	PS1='[safe] \u@\h:\w\$ '
+	export PS1
+
+	# Provide reload/safe_reload so the user can switch back
+	alias reload="unset BASH_SAFE_MODE; exec ${SHELL} -l"
+	alias safe_reload="exec bash -c 'export BASH_SAFE_MODE=true; exec bash --login'"
+else
+
 for file in ~/.{path,bash_prompt,exports,functions,extra,systemspecific}; do
 	[ -r "$file" ] && [ -f "$file" ] && source "$file";
 done;
@@ -274,3 +294,5 @@ unset alias_line alias_name alias_value git_alias_names;
 # Add tab completion for `defaults read|write NSGlobalDomain`
 # You could just use `-g` instead, but I like being explicit
 #complete -W "NSGlobalDomain" defaults;
+
+fi # end BASH_SAFE_MODE check

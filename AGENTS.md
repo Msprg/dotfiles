@@ -24,6 +24,10 @@ Notes:
 - **Prompt hooks**: `PROMPT_COMMAND` is set to run checks after every command
   (exit status, timing, env/history checks).
 - **Debug**: set `DOTFILES_DEBUG="true"` to log load steps.
+- **Safe mode**: set `BASH_SAFE_MODE="true"` (or run `safe_reload`) to start a
+  minimal shell that only loads `~/.path` and `~/.exports`. This skips the
+  prompt, functions, aliases, completions, and PROMPT_COMMAND hooks. Use
+  `reload` from safe mode to return to a full shell.
 
 ## Aliases and Functions
 
