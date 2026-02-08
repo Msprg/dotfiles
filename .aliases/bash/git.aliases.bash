@@ -97,6 +97,7 @@ fi
 
 # merge
 alias gm='git merge'
+alias gmff='git merge --ff-only'
 
 # mv
 alias gmv='git mv'
