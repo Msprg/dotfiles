@@ -711,6 +711,7 @@ function server() {
 	shift
 	"$copyparty_cmd" -p "$port" "$@";
 }
+alias copyparty='server'
 
 # Start a PHP server from a directory, optionally specifying the port
 # (Requires PHP 5.4.0+.)
