@@ -691,17 +691,6 @@ function server() {
 		fi
 	fi
 
-	(
-		sleep 1
-		if command -v xdg-open >/dev/null 2>&1; then
-			xdg-open "$url" >/dev/null 2>&1
-		elif command -v open >/dev/null 2>&1; then
-			open "$url" >/dev/null 2>&1
-		elif command -v explorer.exe >/dev/null 2>&1; then
-			explorer.exe "$url" >/dev/null 2>&1
-		fi
-	) &
-
 	# Start copyparty in the current directory; pass through any extra arguments.
 	shift
 	"$copyparty_cmd" -p "$port" "$@";
