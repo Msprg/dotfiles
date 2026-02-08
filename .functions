@@ -600,10 +600,68 @@ function dataurl() {
 # Start an HTTP server from a directory, optionally specifying the port
 function server() {
 	local port="${1:-8000}";
-	sleep 1 && open "http://localhost:${port}/" &
-	# Set the default Content-Type to `text/plain` instead of `application/octet-stream`
-	# And serve everything as UTF-8 (although not technically correct, this doesn’t break anything for binary files)
-	python -c $'import SimpleHTTPServer;\nmap = SimpleHTTPServer.SimpleHTTPRequestHandler.extensions_map;\nmap[""] = "text/plain";\nfor key, value in map.items():\n\tmap[key] = value + ";charset=UTF-8";\nSimpleHTTPServer.test();' "$port";
+	local url="http://localhost:${port}/"
+	local copyparty_cmd=""
+	local sfx_locations=(
+		"/usr/local/bin/copyparty-sfx.py"
+		"${HOME}/.local/bin/copyparty-sfx.py"
+	)
+
+	# 1) Prefer a PATH-installed copyparty (pipx, package manager, etc.).
+	if command -v copyparty >/dev/null 2>&1; then
+		copyparty_cmd="copyparty"
+	else
+		# 2) Look for the standalone SFX in well-known locations.
+		for loc in "${sfx_locations[@]}"; do
+			if [[ -f "$loc" && -x "$loc" ]]; then
+				copyparty_cmd="$loc"
+				break
+			fi
+		done
+	fi
+
+	# 3) Not found anywhere — offer to download the standalone SFX release.
+	if [[ -z "$copyparty_cmd" ]]; then
+		local dl_url="https://github.com/9001/copyparty/releases/latest/download/copyparty-sfx.py"
+		local dest=""
+
+		# Prefer system-wide /usr/local/bin when writable; fall back to ~/.local/bin.
+		if [[ -w "/usr/local/bin" ]]; then
+			dest="/usr/local/bin/copyparty-sfx.py"
+		else
+			dest="${HOME}/.local/bin/copyparty-sfx.py"
+		fi
+
+		echo "copyparty is not installed."
+		echo ""
+		echo "Download the standalone release to ${dest}?"
+		echo "  ${dl_url}"
+		echo ""
+		read -rp "Download now? [y/N] " answer
+		if [[ "$answer" =~ ^[Yy]$ ]]; then
+			mkdir -p "$(dirname "$dest")"
+			curl -fsSL "$dl_url" -o "$dest" && chmod +x "$dest" \
+				|| { echo "Download failed."; return 1; }
+			copyparty_cmd="$dest"
+		else
+			return 1
+		fi
+	fi
+
+	(
+		sleep 1
+		if command -v xdg-open >/dev/null 2>&1; then
+			xdg-open "$url" >/dev/null 2>&1
+		elif command -v open >/dev/null 2>&1; then
+			open "$url" >/dev/null 2>&1
+		elif command -v explorer.exe >/dev/null 2>&1; then
+			explorer.exe "$url" >/dev/null 2>&1
+		fi
+	) &
+
+	# Start copyparty in the current directory; pass through any extra arguments.
+	shift
+	"$copyparty_cmd" -p "$port" "$@";
 }
 
 # Start a PHP server from a directory, optionally specifying the port
