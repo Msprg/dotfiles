@@ -226,14 +226,13 @@ function add_prompt_command {
 			if [ -z "$PROMPT_COMMAND" ]; then
 				PROMPT_COMMAND="do_my_checks"
 			else
-				# PROMPT_COMMAND="do_my_checks;${PROMPT_COMMAND}"
-				PROMPT_COMMAND="do_my_checks"
+				PROMPT_COMMAND="do_my_checks;${PROMPT_COMMAND}"
 			fi
 		fi
 	}
 
 	function already_set {
-		grep -q check_for_local_history <<<$PROMPT_COMMAND
+		grep -qE '(^|;)do_my_checks($|;)' <<<"$PROMPT_COMMAND"
 	}
 
 	main
