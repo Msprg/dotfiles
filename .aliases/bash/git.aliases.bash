@@ -192,7 +192,13 @@ alias gtl='git tag -l'
 
 case $OSTYPE in
 	darwin*)
-		alias gtls="git tag -l | gsort -V"
+		if _command_exists gsort; then
+			alias gtls='git tag -l | gsort -V'
+		elif sort -V < /dev/null > /dev/null 2>&1; then
+			alias gtls='git tag -l | sort -V'
+		else
+			alias gtls='git tag -l | sort'
+		fi
 		;;
 	*)
 		alias gtls='git tag -l | sort -V'

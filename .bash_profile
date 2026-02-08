@@ -52,14 +52,74 @@ done;
 
 
 
-# Add tab completion for many Bash commands
-if which brew &> /dev/null && [ -r "$(brew --prefix)/etc/profile.d/bash_completion.sh" ]; then
-	# Ensure existing Homebrew v1 completions continue to work
-	export BASH_COMPLETION_COMPAT_DIR="$(brew --prefix)/etc/bash_completion.d";
-	source "$(brew --prefix)/etc/profile.d/bash_completion.sh";
-elif [ -f /etc/bash_completion ]; then
-	source /etc/bash_completion;
+# Add tab completion for many Bash commands.
+completion_sources=(
+	/etc/profile.d/bash_completion.sh
+	/etc/bash_completion
+	/usr/share/bash-completion/bash_completion
+	/usr/share/bash-completion/bash_completion.sh
+	/usr/local/share/bash-completion/bash_completion
+	/usr/local/etc/bash_completion
+);
+
+if command -v brew &> /dev/null; then
+	brew_prefix="$(brew --prefix 2> /dev/null)";
+	if [ -n "$brew_prefix" ]; then
+		completion_sources+=(
+			"$brew_prefix/etc/profile.d/bash_completion.sh"
+			"$brew_prefix/etc/bash_completion"
+		);
+	fi;
 fi;
+
+loaded_completion_script='false';
+for completion_script in "${completion_sources[@]}"; do
+	if [ -r "$completion_script" ]; then
+		if [[ "$completion_script" =~ /etc/profile\.d/bash_completion\.sh$ ]]; then
+			completion_compat_dir="${completion_script%/profile.d/bash_completion.sh}/bash_completion.d";
+			[ -d "$completion_compat_dir" ] && export BASH_COMPLETION_COMPAT_DIR="$completion_compat_dir";
+		fi;
+		source "$completion_script";
+		loaded_completion_script='true';
+		break;
+	fi;
+done;
+
+if [[ "$DOTFILES_DEBUG" == "true" ]] && [ "$loaded_completion_script" != 'true' ] && [ -d /usr/share/bash-completion/completions ]; then
+	echo "[DOTFILE_DBG: completion definitions found in /usr/share/bash-completion/completions but no bash-completion loader script is installed]";
+fi;
+
+# `bash-completion` often lazy-loads Git completions; trigger a load if needed.
+if ! type _git &> /dev/null && ! type __git_main &> /dev/null && type _completion_loader &> /dev/null; then
+	_completion_loader git > /dev/null 2>&1;
+fi;
+
+# Fallback for systems that install Git completion without bash-completion.
+if ! type _git &> /dev/null && ! type __git_main &> /dev/null; then
+	git_completion_sources=(
+		/etc/bash_completion.d/git
+		/usr/share/bash-completion/completions/git
+		/usr/local/etc/bash_completion.d/git
+		/usr/local/share/bash-completion/completions/git
+	);
+
+	if [ -n "$brew_prefix" ]; then
+		git_completion_sources+=(
+			"$brew_prefix/etc/bash_completion.d/git-completion.bash"
+			"$brew_prefix/share/bash-completion/completions/git"
+		);
+	fi;
+
+	for git_completion_script in "${git_completion_sources[@]}"; do
+		if [ -r "$git_completion_script" ]; then
+			source "$git_completion_script";
+			break;
+		fi;
+	done;
+fi;
+
+unset completion_sources completion_script completion_compat_dir;
+unset git_completion_sources git_completion_script brew_prefix loaded_completion_script;
 
 # yes, or maybe not?
 # source /usr/local/etc/bash_completion
@@ -90,7 +150,9 @@ complete -F _makefile_targets m
 #!SECTION Autocompletion of Make targets END
 
 # Enable tab completion for `g` by marking it as an alias for `git`
-if type _git &> /dev/null; then
+if type __git_complete &> /dev/null; then
+	__git_complete g git;
+elif type _git &> /dev/null; then
 	complete -o default -o nospace -F _git g;
 fi;
 
@@ -100,4 +162,3 @@ fi;
 # Add tab completion for `defaults read|write NSGlobalDomain`
 # You could just use `-g` instead, but I like being explicit
 #complete -W "NSGlobalDomain" defaults;
-

@@ -96,7 +96,9 @@ When setting up a new Mac, you may want to install some common [Homebrew](https:
 ./brew.sh
 ```
 
-Some of the functionality of these dotfiles depends on formulae installed by `brew.sh`. If you don’t plan to run `brew.sh`, you should look carefully through the script and manually install any particularly important ones. A good example is Bash/Git completion: the dotfiles use a special version from Homebrew.
+Homebrew is optional. These dotfiles now load Bash/Git completion from standard Linux/macOS locations first, and only use Homebrew paths when `brew` is actually installed.
+
+On Linux, make sure your distro completion packages are installed (typically `bash-completion`, plus Git completion if your distro splits it out separately).
 
 ## Feedback
 
