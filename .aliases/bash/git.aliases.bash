@@ -3,6 +3,7 @@
 
 alias g='git'
 alias get='git'
+# `gdv` and `get_default_branch` are defined in ~/.functions.external.bash.
 
 # add
 alias ga='git add'
@@ -204,16 +205,3 @@ case $OSTYPE in
 		alias gtls='git tag -l | sort -V'
 		;;
 esac
-
-# functions
-function gdv() {
-	git diff --ignore-all-space "$@" | vim -R -
-}
-
-function get_default_branch() {
-	if git branch | grep -q '^. main\s*$'; then
-		echo main
-	else
-		echo master
-	fi
-}

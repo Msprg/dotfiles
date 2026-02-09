@@ -50,7 +50,12 @@ Notes:
 Aliases are modular and live under `.aliases/bash/`. The file
 `.aliases/bash/aliases` loads category-specific alias files (git, docker, etc.).
 
-High-impact functions in `.functions`:
+Function loading is split:
+- `.functions` is a loader.
+- `.functions.internal.bash` contains internal runtime hooks/helpers.
+- `.functions.external.bash` contains user-facing interactive function definitions.
+
+High-impact functions in `.functions.external.bash`:
 - `mkd` (mkdir + cd), `fs` (file/dir size)
 - `pull` (smart git pull based on tracked branch)
 - `f` (grep with ignore rules) and `q` (find with `.qignore`)
@@ -60,7 +65,7 @@ High-impact functions in `.functions`:
 - `dotfiles_profile` (switch feature profiles)
 - `audit_bash_history` (inspect command audit log)
 
-High-impact reload helpers in aliases:
+High-impact reload helpers in `.functions.external.bash`:
 - `reload` (full login shell reload)
 - `safe_reload` (minimal/safe shell reload)
 - `debug_reload` (reload with `DOTFILES_DEBUG=true`)

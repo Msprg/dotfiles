@@ -39,6 +39,11 @@ Interactive shells enter via `.bashrc`, which sources `.bash_profile`.
 Full mode load order:
 `~/.path` -> `~/.dotfiles_features` -> `~/.bash_prompt` -> `~/.exports` -> `~/.functions` -> `~/.extra` -> `~/.systemspecific` -> `~/.aliases/bash/aliases`
 
+Function file split:
+- `~/.functions` is a loader.
+- `~/.functions.internal.bash` contains internal dotfiles runtime hooks/helpers.
+- `~/.functions.external.bash` contains user-facing interactive function definitions.
+
 Safe mode (`BASH_SAFE_MODE=true`) loads only:
 `~/.path` and `~/.exports`
 

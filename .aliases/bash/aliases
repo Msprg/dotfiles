@@ -64,17 +64,7 @@ alias xt='extract'
 # Add an "alert" alias for long running commands.  Use like so:
 #   sleep 10; alert
 alias alert='notify-send --urgency=low -i "$([ $? = 0 ] && echo terminal || echo error)" "$(history|tail -n1|sed -e '\''s/^\s*[0-9]\+\s*//;s/[;&|]\s*alert$//'\'')"'
-
-# Display whatever file is regular file or folder
-function catt() {
-	for i in "$@"; do
-		if [[ -d "$i" ]]; then
-			ls "$i"
-		else
-			cat "$i"
-		fi
-	done
-}
+# `catt`, `ports`, and reload helpers are defined in ~/.functions.external.bash.
 
 # Get week number
 alias week='date +%V'
@@ -85,7 +75,6 @@ alias whatismyip="dig +short myip.opendns.com @resolver1.opendns.com"
 
 # alias ports="sudo lsof -PiTCP -sTCP:LISTEN"
 # alias ports="sudo netstat -pna"
-ports() { if [[ -z "$*" ]]; then sudo netstat -pna; else sudo netstat -pna | grep -i "$@"; fi }
 
 
 # Show active network interfaces
@@ -128,51 +117,15 @@ alias map="xargs -n1"
 #	alias "${method}"="lwp-request -m '${method}'"
 #done
 
-function _dotfiles_unset_runtime_env {
-	local var_name
-
-	while IFS= read -r var_name; do
-		unset "$var_name"
-	done < <(compgen -v | grep -E '^DOTFILES_FEATURE_')
-
-	unset var_name
-	unset PS0 PS1 PS2 PS4 PROMPT_COMMAND
-}
-
-unalias reload debug_reload safe_reload 2>/dev/null
-
-# Reload the shell (i.e. invoke as a login shell)
-function reload {
-	_dotfiles_unset_runtime_env
-	unset DOTFILES_DEBUG DOTFILES_DEBUG_PROMPT_VERBOSE BASH_SAFE_MODE
-	exec "${SHELL:-bash}" -l
-}
-
-# Reload the shell without loading dotfiles customizations (safe mode)
-function safe_reload {
-	_dotfiles_unset_runtime_env
-	unset DOTFILES_DEBUG DOTFILES_DEBUG_PROMPT_VERBOSE
-	export BASH_SAFE_MODE=true
-	exec bash --login
-}
-
-# Reload the shell with dotfiles debugging
-function debug_reload {
-	_dotfiles_unset_runtime_env
-	unset BASH_SAFE_MODE DOTFILES_DEBUG_PROMPT_VERBOSE
-	export DOTFILES_DEBUG=true
-	exec bash --login
-}
-
 # Print each PATH entry on a separate line
 alias path='echo -e ${PATH//:/\\n}'
 
 
 source "$HOME/.aliases/bash/fuck.aliases.bash"
-source "$HOME/.aliases/bash/clipboard.aliases.bash"
+# source "$HOME/.aliases/bash/clipboard.aliases.bash"
 source "$HOME/.aliases/bash/git.aliases.bash"
 source "$HOME/.aliases/bash/systemd.aliases.bash"
-#source "$HOME/.aliases/bash/curl.aliases.bash"
-#source "$HOME/.aliases/bash/docker.aliases.bash"
+source "$HOME/.aliases/bash/curl.aliases.bash"
+source "$HOME/.aliases/bash/docker.aliases.bash"
 #source "$HOME/.aliases/bash/dnf.aliases.bash"
 #source "$HOME/.aliases/bash/apt.aliases.bash"
