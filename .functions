@@ -56,6 +56,95 @@ function check_for_local_history {
 	main
 }
 
+function audit_history_file_path {
+	local base_histfile="${HISTFILE:-$HOME/.bash_history}"
+	local audit_dir
+
+	audit_dir="$(dirname "$base_histfile")"
+	printf '%s/.bash_history_audit\n' "$audit_dir"
+}
+
+function ensure_audit_history_file {
+	local audit_file
+	local audit_dir
+
+	audit_file="$(audit_history_file_path)"
+	audit_dir="$(dirname "$audit_file")"
+
+	mkdir -p "$audit_dir" || return 1
+	if [ ! -e "$audit_file" ]; then
+		touch "$audit_file" || return 1
+		chmod 600 "$audit_file" || return 1
+	fi
+}
+
+function last_history_command_for_audit {
+	local command_raw
+	local command_escaped
+
+	# `fc -ln -1` prefixes entries with one leading whitespace character.
+	command_raw="$(builtin fc -ln -1 | sed 's/^[[:space:]]//')"
+	[ -z "$command_raw" ] && return 1
+
+	# Keep single-line commands human-readable; only escape multiline entries
+	# to keep the TSV audit log one-record-per-line.
+	if [[ "$command_raw" == *$'\n'* ]]; then
+		printf -v command_escaped '%q' "$command_raw"
+		printf '%s\n' "$command_escaped"
+		return
+	fi
+
+	printf '%s\n' "$command_raw"
+}
+
+function append_bash_history_audit {
+	local current_histcmd="${HISTCMD:-}"
+	local audit_file timestamp history_user command_for_audit
+	local cmd_exit duration_us
+
+	[ -z "$current_histcmd" ] && return 0
+	if [ "$current_histcmd" = "${__dotfiles_last_audit_histcmd:-}" ]; then
+		return 0
+	fi
+
+	command_for_audit="$(last_history_command_for_audit)" || return 0
+	ensure_audit_history_file || return 0
+	audit_file="$(audit_history_file_path)"
+
+	timestamp="$(date '+%Y-%m-%dT%H:%M:%S%z')"
+	history_user="${BASH_HISTORY_USERNAME:-${USER:-unknown}}"
+	cmd_exit="${last_cmd_exit_code:-0}"
+	duration_us="${_last_cmd_us:-0}"
+
+	if printf '%s\t%s\t%s\t%s\t%s\n' \
+		"$timestamp" "$history_user" "$cmd_exit" "$duration_us" "$command_for_audit" >> "$audit_file"; then
+		__dotfiles_last_audit_histcmd="$current_histcmd"
+	fi
+}
+
+function audit_bash_history {
+	local audit_file
+
+	audit_file="$(audit_history_file_path)"
+	if [ ! -s "$audit_file" ]; then
+		echo "No audit history found at $audit_file"
+		return 0
+	fi
+
+	if [ "$#" -eq 0 ]; then
+		nl -ba "$audit_file"
+		return
+	fi
+
+	if [ "$#" -eq 1 ] && [[ "$1" =~ ^[0-9]+$ ]]; then
+		tail -n "$1" "$audit_file" | nl -ba
+		return
+	fi
+
+	echo "Usage: audit_bash_history [N]"
+	return 1
+}
+
 function changing_directory {
 	# Compare current directory with the previously seen one.
 	# This avoids history parsing and alias scans on every prompt while still
@@ -205,6 +294,7 @@ last_cmd_exit_code=$? # Here to init this env var on the dotfiles load
 fancyX='✗'
 checkmark='✓'
 __dotfiles_last_pwd="$PWD"
+__dotfiles_last_audit_histcmd=''
 
 if [[ "${DOTFILES_FEATURE_TRACK_COMMAND_DURATION:-true}" == "true" ]]; then
 	trap 'timer_start' DEBUG
@@ -216,6 +306,7 @@ fi
 function do_my_checks {
 	last_cmd_exit_code=$? # Must come as first command of PROMPT_COMMAND!
 	timer_stop # call asap after acquiring the last exit code
+	append_bash_history_audit
 
 	if ! changing_directory; then
 		local long_threshold_us divider_threshold_us metadata_mode
