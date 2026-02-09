@@ -312,6 +312,7 @@ function do_my_checks {
 		local long_threshold_us divider_threshold_us metadata_mode
 		local should_show_metadata='false'
 		local should_show_divider='false'
+		local prompt_already_adds_newline='false'
 		local command_is_long='false'
 		local combined_buff=''
 		local freecols divider
@@ -382,26 +383,36 @@ function do_my_checks {
 				"$last_cmd_exit_code" "$_last_cmd_us" "$should_show_metadata" "$should_show_divider" "$metadata_mode"
 		fi
 
+		# The custom prompt already starts with a newline, so avoid adding an
+		# extra blank line between metadata/divider output and PS1 in that mode.
+		if [[ "${DOTFILES_FEATURE_CUSTOM_PROMPT:-true}" == "true" ]]; then
+			prompt_already_adds_newline='true'
+		fi
+
 		if [ -n "$combined_buff" ] || [[ "$should_show_divider" == "true" ]]; then
 			printf "\n" # separate command output from metadata/prompt
 		fi
+
 
 		if [ -n "$combined_buff" ]; then
 			printf "%s" "$combined_buff"
 		fi
 
 		if [[ "$should_show_divider" == "true" ]]; then
-			freecols=$((${COLUMNS:-80} - ${#combined_buff}))
+			divider_spacer="      " # add divider spacer / preamble
+			freecols=$((${COLUMNS:-80} - ${#combined_buff} - ${#divider_spacer}))
 			(( freecols < 1 )) && freecols=1
+			# echo -n "cb:${#combined_buff}"
+			# echo -n "fc:$freecols"
 			divider="$(printf '%*s' "$freecols" '' | tr ' ' '-')"
+			printf "%s%s%s%s" "$c_brightred" "$divider_spacer" "$divider" "$c_reset"
 
-			if [ -n "$combined_buff" ]; then
-				printf "%s%s%s" "$c_brightred" "      $divider" "$c_reset"
-			else
-				printf "%s%s%s" "$c_brightred" "$divider" "$c_reset"
-			fi
 		elif [ -n "$combined_buff" ]; then
 			printf "%s" "$c_reset"
+		fi
+
+		if { [ -n "$combined_buff" ] || [[ "$should_show_divider" == "true" ]]; } && [[ "$prompt_already_adds_newline" != "true" ]]; then
+			printf "\n" # separate command output from metadata/prompt
 		fi
 
 		return
