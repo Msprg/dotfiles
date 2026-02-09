@@ -26,6 +26,40 @@ function fs() {
 	fi;
 }
 
+# Print non-loopback interface addresses as: iface IPv4... IPv6...
+function ips() {
+	if ! command -v ip > /dev/null 2>&1; then
+		echo "ips: 'ip' command not found" >&2
+		return 1
+	fi
+
+	ip -o addr show | awk '
+		$2 == "lo" { next }
+		$3 == "inet" {
+			ipv4[$2] = ipv4[$2] (ipv4[$2] ? " " : "") $4
+			if (!seen[$2]++) order[++count] = $2
+			next
+		}
+		$3 == "inet6" {
+			ipv6[$2] = ipv6[$2] (ipv6[$2] ? " " : "") $4
+			if (!seen[$2]++) order[++count] = $2
+		}
+		END {
+			for (i = 1; i <= count; i++) {
+				iface = order[i]
+				if (!ipv4[iface] && !ipv6[iface]) {
+					continue
+				}
+
+				line = iface
+				if (ipv4[iface]) line = line " " ipv4[iface]
+				if (ipv6[iface]) line = line " " ipv6[iface]
+				print line
+			}
+		}
+	'
+}
+
 
 
 #!SECTION per-directory Bash history
