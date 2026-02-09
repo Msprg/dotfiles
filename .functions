@@ -295,6 +295,7 @@ fancyX='✗'
 checkmark='✓'
 __dotfiles_last_pwd="$PWD"
 __dotfiles_last_audit_histcmd=''
+__dotfiles_prompt_last_exit_code=0
 
 if [[ "${DOTFILES_FEATURE_TRACK_COMMAND_DURATION:-true}" == "true" ]]; then
 	trap 'timer_start' DEBUG
@@ -304,7 +305,7 @@ else
 fi
 
 function do_my_checks {
-	last_cmd_exit_code=$? # Must come as first command of PROMPT_COMMAND!
+	last_cmd_exit_code="${__dotfiles_prompt_last_exit_code:-$?}"
 	timer_stop # call asap after acquiring the last exit code
 	append_bash_history_audit
 
@@ -430,25 +431,41 @@ function set_macos_terminal_tab_title {
 	echo -n -e "\033]0;~/${home_relative_path}\007"
 }
 
+function capture_prompt_exit_status {
+	__dotfiles_prompt_last_exit_code=$?
+}
+
 function add_prompt_command {
-	function main {
-		if ! already_set; then
-			if [ -z "$PROMPT_COMMAND" ]; then
-				PROMPT_COMMAND="do_my_checks"
-			else
-				PROMPT_COMMAND="${PROMPT_COMMAND%;};do_my_checks"
-			fi
-			dotfiles_dbg ".FUNCTIONS appended do_my_checks to PROMPT_COMMAND -> '$PROMPT_COMMAND'"
-		else
-			dotfiles_dbg ".FUNCTIONS PROMPT_COMMAND already contains do_my_checks"
+	local current_prompt_command="${PROMPT_COMMAND:-}"
+	local rebuilt_prompt_command=''
+	local prompt_part
+	local prompt_parts=()
+	local normalized_prompt_command
+
+	IFS=';' read -r -a prompt_parts <<< "$current_prompt_command"
+	for prompt_part in "${prompt_parts[@]}"; do
+		prompt_part="${prompt_part#"${prompt_part%%[![:space:]]*}"}"
+		prompt_part="${prompt_part%"${prompt_part##*[![:space:]]}"}"
+
+		if [ -z "$prompt_part" ] || [ "$prompt_part" = 'do_my_checks' ] || [ "$prompt_part" = 'capture_prompt_exit_status' ]; then
+			continue
 		fi
-	}
 
-	function already_set {
-		grep -qE '(^|;)do_my_checks($|;)' <<<"$PROMPT_COMMAND"
-	}
+		if [ -z "$rebuilt_prompt_command" ]; then
+			rebuilt_prompt_command="$prompt_part"
+		else
+			rebuilt_prompt_command="${rebuilt_prompt_command};${prompt_part}"
+		fi
+	done
 
-	main
+	if [ -n "$rebuilt_prompt_command" ]; then
+		normalized_prompt_command="capture_prompt_exit_status;${rebuilt_prompt_command};do_my_checks"
+	else
+		normalized_prompt_command='capture_prompt_exit_status;do_my_checks'
+	fi
+
+	PROMPT_COMMAND="$normalized_prompt_command"
+	dotfiles_dbg ".FUNCTIONS normalized PROMPT_COMMAND -> '$PROMPT_COMMAND'"
 }
 
 function remove_prompt_command {
@@ -462,7 +479,7 @@ function remove_prompt_command {
 		prompt_part="${prompt_part#"${prompt_part%%[![:space:]]*}"}"
 		prompt_part="${prompt_part%"${prompt_part##*[![:space:]]}"}"
 
-		if [ -z "$prompt_part" ] || [ "$prompt_part" = 'do_my_checks' ]; then
+		if [ -z "$prompt_part" ] || [ "$prompt_part" = 'do_my_checks' ] || [ "$prompt_part" = 'capture_prompt_exit_status' ]; then
 			continue
 		fi
 
