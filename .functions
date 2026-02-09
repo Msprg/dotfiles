@@ -298,10 +298,58 @@ __dotfiles_last_audit_histcmd=''
 __dotfiles_prompt_last_exit_code=0
 
 if [[ "${DOTFILES_FEATURE_TRACK_COMMAND_DURATION:-true}" == "true" ]]; then
-	trap 'timer_start' DEBUG
-	dotfiles_dbg ".FUNCTIONS installed DEBUG trap for timer_start"
+	function __dotfiles_supports_ps0 {
+		(( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4) ))
+	}
+
+	function __dotfiles_install_timer_start_hook {
+		local requested_method="${DOTFILES_FEATURE_TRACK_COMMAND_DURATION_METHOD:-auto}"
+
+		if __dotfiles_supports_ps0; then
+			# `$(...)` in PS0 runs in a subshell, so state changes are lost.
+			# Use parameter expansion assignment instead; the clear sequences
+			# avoid showing the assigned timestamp in the terminal.
+			local ps0_timer_marker='${timer_start:=$(timer_now)}'
+			local ps0_timer_hook=$'\r\033[2K'"${ps0_timer_marker}"$'\r\033[2K'
+			local legacy_ps0_hook='$(__dotfiles_timer_start_ps0)'
+			local use_ps0='false'
+
+			case "$requested_method" in
+				ps0) use_ps0='true' ;;
+				auto) use_ps0='true' ;;
+				debug) use_ps0='false' ;;
+				*)
+					dotfiles_dbg ".FUNCTIONS unknown DOTFILES_FEATURE_TRACK_COMMAND_DURATION_METHOD='${requested_method}'; using auto"
+					use_ps0='true'
+					;;
+			esac
+
+			if [[ "${PS0:-}" == *"$legacy_ps0_hook"* ]]; then
+				PS0="${PS0//$legacy_ps0_hook/}"
+			fi
+			if [[ "${PS0:-}" == *"$ps0_timer_hook"* ]]; then
+				PS0="${PS0//$ps0_timer_hook/}"
+			fi
+
+			if [[ "$use_ps0" == 'true' ]]; then
+				PS0="${ps0_timer_hook}${PS0:-}"
+				export PS0
+				# Keep timing start in one place (PS0) to avoid DEBUG-trap overhead.
+				trap - DEBUG
+				dotfiles_dbg ".FUNCTIONS installed PS0 hook for timer_start (method=${requested_method})"
+			else
+				trap 'timer_start' DEBUG
+				dotfiles_dbg ".FUNCTIONS installed DEBUG trap for timer_start (method=debug)"
+			fi
+		else
+			trap 'timer_start' DEBUG
+			dotfiles_dbg ".FUNCTIONS installed DEBUG trap for timer_start (PS0 unsupported, method=${requested_method})"
+		fi
+	}
+
+	__dotfiles_install_timer_start_hook
 else
-	dotfiles_dbg ".FUNCTIONS skipped DEBUG trap; DOTFILES_FEATURE_TRACK_COMMAND_DURATION=false"
+	dotfiles_dbg ".FUNCTIONS skipped timer_start hook; DOTFILES_FEATURE_TRACK_COMMAND_DURATION=false"
 fi
 
 function do_my_checks {
@@ -500,7 +548,7 @@ else
 	remove_prompt_command
 fi
 dotfiles_dbg ".FUNCTIONS prompt hook decision: DOTFILES_FEATURE_PROMPT_HOOKS=${DOTFILES_FEATURE_PROMPT_HOOKS:-unset}"
-dotfiles_dbg ".FUNCTIONS feature summary: profile=${DOTFILES_FEATURE_PROFILE:-unset} custom_prompt=${DOTFILES_FEATURE_CUSTOM_PROMPT:-unset} metadata_mode=${DOTFILES_FEATURE_PROMPT_METADATA_MODE:-unset} track_duration=${DOTFILES_FEATURE_TRACK_COMMAND_DURATION:-unset} local_history=${DOTFILES_FEATURE_LOCAL_HISTORY:-unset} auto_dot_env=${DOTFILES_FEATURE_AUTO_DOT_ENV:-unset}"
+dotfiles_dbg ".FUNCTIONS feature summary: profile=${DOTFILES_FEATURE_PROFILE:-unset} custom_prompt=${DOTFILES_FEATURE_CUSTOM_PROMPT:-unset} metadata_mode=${DOTFILES_FEATURE_PROMPT_METADATA_MODE:-unset} track_duration=${DOTFILES_FEATURE_TRACK_COMMAND_DURATION:-unset} track_method=${DOTFILES_FEATURE_TRACK_COMMAND_DURATION_METHOD:-unset} local_history=${DOTFILES_FEATURE_LOCAL_HISTORY:-unset} auto_dot_env=${DOTFILES_FEATURE_AUTO_DOT_ENV:-unset}"
 
 function dotfiles_profile {
 	local requested_profile="$1"
@@ -531,6 +579,10 @@ function dotfiles_profile {
 # DOTFILES_FEATURE_PROFILE=full
 # DOTFILES_FEATURE_PROFILE=light
 # DOTFILES_FEATURE_PROFILE=minimal
+# Choose command duration start hook:
+# DOTFILES_FEATURE_TRACK_COMMAND_DURATION_METHOD=auto
+# DOTFILES_FEATURE_TRACK_COMMAND_DURATION_METHOD=ps0
+# DOTFILES_FEATURE_TRACK_COMMAND_DURATION_METHOD=debug
 EOF
 			fi
 			tmpfile="$(mktemp)" || return 1

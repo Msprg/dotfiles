@@ -90,7 +90,7 @@ else
 	fi
 	unset file;
 
-	dotfiles_dbg "Feature summary: profile=${DOTFILES_FEATURE_PROFILE:-unset}, custom_prompt=${DOTFILES_FEATURE_CUSTOM_PROMPT:-unset}, prompt_hooks=${DOTFILES_FEATURE_PROMPT_HOOKS:-unset}, metadata_mode=${DOTFILES_FEATURE_PROMPT_METADATA_MODE:-unset}"
+	dotfiles_dbg "Feature summary: profile=${DOTFILES_FEATURE_PROFILE:-unset}, custom_prompt=${DOTFILES_FEATURE_CUSTOM_PROMPT:-unset}, prompt_hooks=${DOTFILES_FEATURE_PROMPT_HOOKS:-unset}, metadata_mode=${DOTFILES_FEATURE_PROMPT_METADATA_MODE:-unset}, track_method=${DOTFILES_FEATURE_TRACK_COMMAND_DURATION_METHOD:-unset}"
 
 shopt -s extglob
 # keeps newlines in multi-line commands
