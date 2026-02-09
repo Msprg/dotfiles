@@ -15,6 +15,7 @@ Notes:
 - If you need custom PATH or private overrides, use `~/.path` and `~/.extra`.
 - Feature toggles and profile defaults live in `~/.dotfiles_features`; optional
   machine-local overrides can be placed in `~/.dotfiles_features.local`.
+- Safe mode can be entered with `BASH_SAFE_MODE="true"` or `safe_reload`.
 
 ## Behavior That Affects Automation
 
@@ -23,6 +24,9 @@ Notes:
   unexpectedly.
 - **Per-directory Bash history**: if `.bash_history` exists in a directory, it
   becomes the active history file.
+- **History audit log**: commands are also appended to `.bash_history_audit`
+  alongside timestamp, user, exit code, and command duration (microseconds).
+  Use `audit_bash_history [N]` to inspect records.
 - **Prompt hooks**: `PROMPT_COMMAND` can run checks after every command (exit
   status, timing, env/history checks), depending on feature flags.
 - **Debug**: set `DOTFILES_DEBUG="true"` to log load steps.
@@ -30,6 +34,16 @@ Notes:
   minimal shell that only loads `~/.path` and `~/.exports`. This skips the
   prompt, functions, aliases, completions, and PROMPT_COMMAND hooks. Use
   `reload` from safe mode to return to a full shell.
+
+## Feature Profiles and Hooks
+
+- Profiles are selected with `DOTFILES_FEATURE_PROFILE` (`full`, `light`,
+  `minimal`) and resolved in `.dotfiles_features`, then overridden by
+  `.dotfiles_features.local`.
+- Helper command: `dotfiles_profile [show|full|light|minimal|reset]`.
+- Command-duration start hook method is controlled by
+  `DOTFILES_FEATURE_TRACK_COMMAND_DURATION_METHOD` (`auto`, `ps0`, `debug`).
+  `auto` prefers PS0 on supported Bash versions and falls back to DEBUG trap.
 
 ## Aliases and Functions
 
@@ -43,6 +57,13 @@ High-impact functions in `.functions`:
 - `gfc` (git fetch/checkout/reset to origin branch)
 - `vimp` (vim + optional line number parsing)
 - `hibp` (Have I Been Pwned password check)
+- `dotfiles_profile` (switch feature profiles)
+- `audit_bash_history` (inspect command audit log)
+
+High-impact reload helpers in aliases:
+- `reload` (full login shell reload)
+- `safe_reload` (minimal/safe shell reload)
+- `debug_reload` (reload with `DOTFILES_DEBUG=true`)
 
 ## Editors and Defaults
 
@@ -61,6 +82,8 @@ by the bootstrap script unless renamed.
 Use `source bootstrap.sh` from the repo root to install or update dotfiles.
 It rsyncs to `$HOME` while excluding `.disabled`, scripts, and docs.
 Use `set -- -f; source bootstrap.sh` to skip confirmation.
+Bootstrap also attempts to install `bash-completion` when no loader script is
+detected.
 
 ## Other Notable Files
 
@@ -68,3 +91,5 @@ Use `set -- -f; source bootstrap.sh` to skip confirmation.
 - `.tmux.conf`: tmux prefix and keybindings
 - `.curlrc` / `.wgetrc`: networking defaults
 - `.macos.disabled` / `.osx.disabled`: macOS settings (not applied on Linux)
+- `.aliases/bash/git.aliases.bash`: Git alias source used by dynamic alias
+  completion registration in `.bash_profile`

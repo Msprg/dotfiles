@@ -1,128 +1,122 @@
-# A dotfile mix I made literally ✨overnight✨
+# Dotfiles
 
-Cherrypicked and merged dotfiles from the following repositories:
-
-https://github.com/gurdiga/dotfiles
-
-https://github.com/mathiasbynens/dotfiles - forked, served as a basis.
-
-https://github.com/Bash-it/bash-it
-
-I have also removed most of the MacOS stuff as it's redundant and/or irrelevant to me.
-
-//todo: some light refactoring and organization are in order.
-
-
-## Readme from Mathias's repo :)
-
-![Screenshot of my shell prompt](https://i.imgur.com/EkEtphC.png)
+Personal Bash-focused dotfiles with feature toggles for prompt behavior, command
+timing, per-directory history, and `.env` auto-loading.
 
 ## Installation
 
-**Warning:** If you want to give these dotfiles a try, you should first fork this repository, review the code, and remove things you don’t want or need. Don’t blindly use my settings unless you know what that entails. Use at your own risk!
-
-### Using Git and the bootstrap script
-
-You can clone the repository wherever you want. (I like to keep it in `~/Projects/dotfiles`, with `~/dotfiles` as a symlink.) The bootstrapper script will pull in the latest version and copy the files to your home folder.
+Clone and install:
 
 ```bash
-git clone https://github.com/msprg/dotfiles.git && cd dotfiles && source bootstrap.sh
-```
-
-To update, `cd` into your local `dotfiles` repository and then:
-
-```bash
+git clone https://github.com/msprg/dotfiles.git
+cd dotfiles
 source bootstrap.sh
 ```
 
-Alternatively, to update while avoiding the confirmation prompt:
+Update existing install:
+
+```bash
+cd /path/to/dotfiles
+source bootstrap.sh
+```
+
+Skip bootstrap confirmation:
 
 ```bash
 set -- -f; source bootstrap.sh
 ```
 
-### Git-free install
+What `bootstrap.sh` does:
+- Runs `git pull origin main` from repo root.
+- Rsyncs dotfiles into `$HOME`.
+- Excludes `.git/`, `*.md`, `*.sh`, `*.disabled`, and a few other non-runtime files.
+- Ensures a Bash completion loader is installed (best effort).
 
-To install these dotfiles without Git:
+## Shell Load Order
 
-```bash
-cd; curl -#L https://github.com/msprg/dotfiles/tarball/main | tar -xzv --strip-components 1 --exclude={*.md,*.sh,.osx,*.txt}
-```
+Interactive shells enter via `.bashrc`, which sources `.bash_profile`.
 
-To update later on, just run that command again.
+Full mode load order:
+`~/.path` -> `~/.dotfiles_features` -> `~/.bash_prompt` -> `~/.exports` -> `~/.functions` -> `~/.extra` -> `~/.systemspecific` -> `~/.aliases/bash/aliases`
 
-### Specify the `$PATH`
+Safe mode (`BASH_SAFE_MODE=true`) loads only:
+`~/.path` and `~/.exports`
 
-If `~/.path` exists, it will be sourced along with the other files, before any feature testing (such as [detecting which version of `ls` is being used](https://github.com/mathiasbynens/dotfiles/blob/aff769fd75225d8f2e481185a71d5e05b76002dc/.aliases#L21-L26)) takes place.
+In safe mode, prompt/functions/aliases/completions/PROMPT_COMMAND hooks are skipped.
 
-Here’s an example `~/.path` file that adds `/usr/local/bin` to the `$PATH`:
+## Runtime Controls
 
-```bash
-export PATH="/usr/local/bin:$PATH"
-```
+Quick shell reload helpers:
+- `reload`: restart login shell in full mode.
+- `safe_reload`: restart login shell in safe mode.
+- `debug_reload`: restart login shell with `DOTFILES_DEBUG=true`.
 
-### Add custom commands without creating a new fork
-
-If `~/.extra` exists, it will be sourced along with the other files. You can use this to add a few custom commands without the need to fork this entire repository, or to add commands you don’t want to commit to a public repository.
-
-My `~/.extra` looks something like this:
-
-```bash
-# Git credentials
-# Not in the repository, to prevent people from accidentally committing under my name
-GIT_AUTHOR_NAME="Mathias Bynens"
-GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME"
-git config --global user.name "$GIT_AUTHOR_NAME"
-GIT_AUTHOR_EMAIL="mathias@mailinator.com"
-GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
-git config --global user.email "$GIT_AUTHOR_EMAIL"
-```
-
-You could also use `~/.extra` to override settings, functions and aliases from my dotfiles repository. It’s probably better to [fork this repository](https://github.com/mathiasbynens/dotfiles/fork) instead, though.
-
-### Sensible macOS defaults
-
-When setting up a new Mac, you may want to set some sensible macOS defaults:
+Profile helper:
 
 ```bash
-./.macos
+dotfiles_profile show
+dotfiles_profile full
+dotfiles_profile light
+dotfiles_profile minimal
+dotfiles_profile reset
 ```
 
-### Install Homebrew formulae
+Profile settings are resolved in `~/.dotfiles_features` plus optional overrides in
+`~/.dotfiles_features.local`.
 
-When setting up a new Mac, you may want to install some common [Homebrew](https://brew.sh/) formulae (after installing Homebrew, of course):
+## Feature Highlights
+
+- Prompt metadata and divider behavior are controlled by feature flags.
+- Command duration tracking supports `auto|ps0|debug` via
+  `DOTFILES_FEATURE_TRACK_COMMAND_DURATION_METHOD`.
+- `PROMPT_COMMAND` is normalized to preserve existing hooks while adding:
+  `capture_prompt_exit_status` and `do_my_checks`.
+- `.env` auto-load/unload runs on directory change (toggle:
+  `DOTFILES_FEATURE_AUTO_DOT_ENV`).
+- Per-directory history switches to local `.bash_history` files when present
+  (toggle: `DOTFILES_FEATURE_LOCAL_HISTORY`).
+- History timestamps are controlled by `DOTFILES_FEATURE_HISTORY_TIMESTAMPS`.
+
+## History Audit
+
+Every prompt cycle can append audit records to a sibling file of your active
+history file:
+
+- Default: `~/.bash_history_audit`
+- Format: `timestamp<TAB>user<TAB>exit<TAB>duration_us<TAB>command`
+
+Inspect audit log:
 
 ```bash
-./brew.sh
+audit_bash_history
+audit_bash_history 100
 ```
 
-Homebrew is optional. These dotfiles now load Bash/Git completion from standard Linux/macOS locations first, and only use Homebrew paths when `brew` is actually installed.
+## Completion Behavior
 
-On Linux, make sure your distro completion packages are installed (typically `bash-completion`, plus Git completion if your distro splits it out separately).
+- Bash completion loader is sourced from common Linux/macOS paths.
+- Homebrew completion paths are used only if `brew` exists.
+- If full bash-completion is unavailable, Git completion is loaded from common
+  fallback locations when possible.
+- Git alias completion is registered dynamically for aliases that expand to
+  `git ...`.
+- Make target completion is enabled for `make` and `m`.
 
-## Feedback
+## Notable Functions
 
-Suggestions/improvements
-[welcome](https://github.com/mathiasbynens/dotfiles/issues)!
+- `pull`: smart `git pull` based on tracked branch.
+- `gfc <branch>`: fetch/checkout/reset hard to `origin/<branch>`.
+- `server [port]`: starts `copyparty` in current directory (with periodic update checks).
+- `hibp`: Have I Been Pwned password range check.
+- `vimp path[:line]`: open Vim and jump to line.
 
-## Author
+## Local Customization Files
 
-| [![twitter/mathias](http://gravatar.com/avatar/24e08a9ea84deb17ae121074d0f17125?s=70)](http://twitter.com/mathias "Follow @mathias on Twitter") |
-|---|
-| [Mathias Bynens](https://mathiasbynens.be/) |
+- `~/.path`: custom PATH additions.
+- `~/.extra`: private machine/user customizations.
+- `~/.systemspecific`: optional host-specific settings.
+- `~/.dotfiles_features.local`: profile and feature overrides.
 
-## Thanks to…
+## Agent Notes
 
-* @ptb and [his _macOS Setup_ repository](https://github.com/ptb/mac-setup)
-* [Ben Alman](http://benalman.com/) and his [dotfiles repository](https://github.com/cowboy/dotfiles)
-* [Cătălin Mariș](https://github.com/alrra) and his [dotfiles repository](https://github.com/alrra/dotfiles)
-* [Gianni Chiappetta](https://butt.zone/) for sharing his [amazing collection of dotfiles](https://github.com/gf3/dotfiles)
-* [Jan Moesen](http://jan.moesen.nu/) and his [ancient `.bash_profile`](https://gist.github.com/1156154) + [shiny _tilde_ repository](https://github.com/janmoesen/tilde)
-* Lauri ‘Lri’ Ranta for sharing [loads of hidden preferences](https://web.archive.org/web/20161104144204/http://osxnotes.net/defaults.html)
-* [Matijs Brinkhuis](https://matijs.brinkhu.is/) and his [dotfiles repository](https://github.com/matijs/dotfiles)
-* [Nicolas Gallagher](http://nicolasgallagher.com/) and his [dotfiles repository](https://github.com/necolas/dotfiles)
-* [Sindre Sorhus](https://sindresorhus.com/)
-* [Tom Ryder](https://sanctum.geek.nz/) and his [dotfiles repository](https://sanctum.geek.nz/cgit/dotfiles.git/about)
-* [Kevin Suttle](http://kevinsuttle.com/) and his [dotfiles repository](https://github.com/kevinSuttle/dotfiles) and [macOS-Defaults project](https://github.com/kevinSuttle/macOS-Defaults), which aims to provide better documentation for [`~/.macos`](https://mths.be/macos)
-* [Haralan Dobrev](https://hkdobrev.com/)
-* Anyone who [contributed a patch](https://github.com/mathiasbynens/dotfiles/contributors) or [made a helpful suggestion](https://github.com/mathiasbynens/dotfiles/issues)
+If you are automating changes in this repo, also read `AGENTS.md`.
