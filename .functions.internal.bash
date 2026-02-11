@@ -72,8 +72,8 @@ function last_history_command_for_audit {
 
 function append_bash_history_audit {
 	local current_histcmd="${HISTCMD:-}"
-	local audit_file timestamp history_user command_for_audit
-	local cmd_exit duration_us
+	local audit_file timestamp history_user history_user_display command_for_audit
+	local cmd_exit duration_us duration_display
 
 	[ -z "$current_histcmd" ] && return 0
 	if [ "$current_histcmd" = "${__dotfiles_last_audit_histcmd:-}" ]; then
@@ -86,11 +86,16 @@ function append_bash_history_audit {
 
 	timestamp="$(date '+%Y-%m-%dT%H:%M:%S%z')"
 	history_user="${BASH_HISTORY_USERNAME:-${USER:-unknown}}"
+	history_user_display="$history_user"
+	if [ "${#history_user_display}" -gt 24 ]; then
+		history_user_display="${history_user_display:0:21}..."
+	fi
 	cmd_exit="${last_cmd_exit_code:-0}"
 	duration_us="${_last_cmd_us:-0}"
+	duration_display="$(format_duration_us "$duration_us")"
 
-	if printf '%s\t%s\t%s\t%s\t%s\n' \
-		"$timestamp" "$history_user" "$cmd_exit" "$duration_us" "$command_for_audit" >> "$audit_file"; then
+	if printf '%-24s  %-24s  exit:%-3s  took:%-9s  %s\n' \
+		"$timestamp" "$history_user_display" "$cmd_exit" "$duration_display" "$command_for_audit" >> "$audit_file"; then
 		__dotfiles_last_audit_histcmd="$current_histcmd"
 	fi
 }
@@ -198,6 +203,40 @@ function timer_now { date +%s%N; }
 
 function timer_start { timer_start=${timer_start:-$(timer_now)}; }
 
+function format_duration_us {
+	local delta_us="${1:-0}"
+	local us ms s m h duration_display
+
+	if ! [[ "$delta_us" =~ ^[0-9]+$ ]]; then
+		delta_us=0
+	fi
+
+	us=$((delta_us % 1000))
+	ms=$(((delta_us / 1000) % 1000))
+	s=$(((delta_us / 1000000) % 60))
+	m=$(((delta_us / 60000000) % 60))
+	h=$((delta_us / 3600000000))
+
+	# Goal: always show around 3 digits of accuracy.
+	if ((h > 0)); then
+		duration_display=${h}h${m}m
+	elif ((m > 0)); then
+		duration_display=${m}m${s}s
+	elif ((s >= 10)); then
+		duration_display=${s}.$((ms / 100))s
+	elif ((s > 0)); then
+		duration_display=${s}.$(printf %03d "$ms")s
+	elif ((ms >= 100)); then
+		duration_display=${ms}ms
+	elif ((ms > 0)); then
+		duration_display=${ms}.$((us / 100))ms
+	else
+		duration_display=${us}us
+	fi
+
+	printf '%s\n' "$duration_display"
+}
+
 function timer_stop {
 	if [[ "${DOTFILES_FEATURE_TRACK_COMMAND_DURATION:-true}" != "true" ]]; then
 		_last_cmd_us=0
@@ -214,28 +253,7 @@ function timer_stop {
 
 	local delta_us=$((($(timer_now) - timer_start) / 1000))
 	_last_cmd_us=$delta_us # raw microseconds, used by do_my_checks
-	local us=$((delta_us % 1000))
-	local ms=$(((delta_us / 1000) % 1000))
-	local s=$(((delta_us / 1000000) % 60))
-	local m=$(((delta_us / 60000000) % 60))
-	local h=$((delta_us / 3600000000))
-
-	# Goal: always show around 3 digits of accuracy.
-	if ((h > 0)); then
-		timer_show=${h}h${m}m
-	elif ((m > 0)); then
-		timer_show=${m}m${s}s
-	elif ((s >= 10)); then
-		timer_show=${s}.$((ms / 100))s
-	elif ((s > 0)); then
-		timer_show=${s}.$(printf %03d "$ms")s
-	elif ((ms >= 100)); then
-		timer_show=${ms}ms
-	elif ((ms > 0)); then
-		timer_show=${ms}.$((us / 100))ms
-	else
-		timer_show=${us}us
-	fi
+	timer_show="$(format_duration_us "$delta_us")"
 
 	unset timer_start
 }
