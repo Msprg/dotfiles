@@ -85,7 +85,12 @@ function audit_bash_history {
 		return
 	fi
 
-	echo "Usage: audit_bash_history [N]"
+	if [ "$#" -eq 1 ] && [ "$1" = "-f" ]; then
+		tail -f "$audit_file"
+		return
+	fi
+
+	echo "Usage: audit_bash_history [N|-f]"
 	return 1
 }
 
