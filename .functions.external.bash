@@ -169,6 +169,86 @@ EOF
 	esac
 }
 
+function dotfiles_update {
+	local canonical_repo_url="https://github.com/Msprg/dotFiles.git"
+	local repo_dir workspace_dir clone_url target_branch bootstrap_script
+	local use_temp_workspace='false'
+	local temp_dir=''
+	local persist_repo_dir='true'
+
+	repo_dir="$(dotfiles_resolve_repo_dir 2> /dev/null || true)"
+
+	if [ -n "$repo_dir" ]; then
+		clone_url="$(git -C "$repo_dir" config --get remote.origin.url 2> /dev/null || true)"
+		target_branch="$(__dotfiles_update_target_branch "$repo_dir" 2> /dev/null || printf '%s\n' 'main')"
+	else
+		clone_url="$canonical_repo_url"
+		target_branch='main'
+	fi
+	[ -n "$clone_url" ] || clone_url="$canonical_repo_url"
+
+	if [ -n "$repo_dir" ] && [ -w "$repo_dir" ] && [ -w "$repo_dir/.git" ]; then
+		workspace_dir="$repo_dir"
+	else
+		use_temp_workspace='true'
+		persist_repo_dir='false'
+		temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/dotfiles-update.XXXXXX")" || {
+			echo "dotfiles_update: could not create temp workspace" >&2
+			return 1
+		}
+		workspace_dir="$temp_dir/dotFiles"
+
+		echo "Using temporary workspace for update: $workspace_dir"
+		if ! git clone --depth 1 --branch "$target_branch" "$clone_url" "$workspace_dir"; then
+			rm -rf "$temp_dir"
+			echo "dotfiles_update: clone failed from $clone_url (branch: $target_branch)" >&2
+			return 1
+		fi
+	fi
+
+	if [[ "$use_temp_workspace" != "true" ]]; then
+		if [ -n "$(git -C "$workspace_dir" status --porcelain 2> /dev/null)" ]; then
+			echo "dotfiles_update: local changes detected in $workspace_dir"
+			echo "Commit or stash changes, then run dotfiles_update again."
+			return 1
+		fi
+	fi
+
+	bootstrap_script="$workspace_dir/bootstrap.sh"
+	if [ ! -r "$bootstrap_script" ]; then
+		[ -n "$temp_dir" ] && rm -rf "$temp_dir"
+		echo "dotfiles_update: bootstrap script not found at $bootstrap_script" >&2
+		return 1
+	fi
+
+	echo "Updating dotfiles from $workspace_dir ..."
+	if ! DOTFILES_BOOTSTRAP_NO_SOURCE_PROFILE='true' \
+		DOTFILES_BOOTSTRAP_PERSIST_REPO_DIR="$persist_repo_dir" \
+		bash -c 'bootstrap_script="$1"; set -- -f; source "$bootstrap_script"' _ "$bootstrap_script"; then
+		[ -n "$temp_dir" ] && rm -rf "$temp_dir"
+		echo "dotfiles_update: bootstrap update failed" >&2
+		return 1
+	fi
+
+	# Refresh update-check cache so the next shell prompt starts from fresh state.
+	if [[ "$use_temp_workspace" == "true" ]]; then
+		if declare -F __dotfiles_write_update_state > /dev/null; then
+			local synced_commit
+			synced_commit="$(git -C "$workspace_dir" rev-parse HEAD 2> /dev/null || true)"
+			__dotfiles_write_update_state "up_to_date" "$synced_commit" "$synced_commit" "$(date +%s)" ""
+		fi
+	else
+		__dotfiles_run_update_check_worker > /dev/null 2>&1 || true
+	fi
+
+	if [ -n "$temp_dir" ]; then
+		rm -rf "$temp_dir"
+	fi
+
+	echo "Dotfiles updated. Reloading shell..."
+	reload
+}
+
 #export RUBY_GC_MALLOC_LIMIT=90000000
 #export RUBY_GC_HEAP_FREE_SLOTS=200000
 

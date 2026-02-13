@@ -55,6 +55,7 @@ Quick shell reload helpers:
 - `reload`: restart login shell in full mode.
 - `safe_reload`: restart login shell in safe mode.
 - `debug_reload`: restart login shell with `DOTFILES_DEBUG=true`.
+- `dotfiles_update`: update dotfiles from GitHub (or configured repo source) and reload.
 
 Profile helper:
 
@@ -69,6 +70,29 @@ dotfiles_profile reset
 Profile settings are resolved in `~/.dotfiles_features` plus optional overrides in
 `~/.dotfiles_features.local`.
 
+## Dotfiles Self-Update
+
+- Update checks run asynchronously during shell startup (non-blocking) when
+  `DOTFILES_FEATURE_DOTFILES_UPDATE_CHECK=true`.
+- Default check scope is all interactive shells (`DOTFILES_FEATURE_DOTFILES_UPDATE_CHECK_SCOPE=interactive`).
+  Set it to `ssh` to check only in SSH sessions.
+- Default throttle interval is 12 hours
+  (`DOTFILES_FEATURE_DOTFILES_UPDATE_CHECK_INTERVAL_SECONDS=43200`).
+- When an update is detected, one message is shown per shell session:
+  `Dotfiles update available: <local> -> <remote>. Run: dotfiles_update`
+
+Repo resolution order for checks/updates:
+1. `DOTFILES_REPO_DIR` (if set and valid)
+2. `~/.dotfiles_repo_dir` (written by bootstrap by default)
+3. `~/dotFiles`
+4. `~/dotfiles`
+
+`dotfiles_update` behavior:
+- Uses writable local repo when available.
+- If repo is missing or not writable, uses a temporary clone to install updates.
+- Aborts if writable local repo has uncommitted changes.
+- Calls bootstrap in non-interactive mode and then reloads the shell.
+
 ## Feature Highlights
 
 - Prompt metadata and divider behavior are controlled by feature flags.
@@ -82,6 +106,10 @@ Profile settings are resolved in `~/.dotfiles_features` plus optional overrides 
 - Per-directory history switches to local `.bash_history` files when present
   (toggle: `DOTFILES_FEATURE_LOCAL_HISTORY`).
 - History timestamps are controlled by `DOTFILES_FEATURE_HISTORY_TIMESTAMPS`.
+- Dotfiles update checks are controlled by:
+  `DOTFILES_FEATURE_DOTFILES_UPDATE_CHECK`,
+  `DOTFILES_FEATURE_DOTFILES_UPDATE_CHECK_SCOPE`,
+  `DOTFILES_FEATURE_DOTFILES_UPDATE_CHECK_INTERVAL_SECONDS`.
 
 ## History Audit
 

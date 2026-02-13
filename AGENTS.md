@@ -22,6 +22,9 @@ Notes:
 - **Auto-loads `.env`**: `.functions` loads/unloads `.env` when directory
   context changes and also reloads when the active `.env` file is edited. This
   can change environment variables unexpectedly.
+- **Async dotfiles update checks**: interactive shells may start a background
+  Git check (throttled by feature flags), and print a one-time-per-session
+  notice when updates are available.
 - **Per-directory Bash history**: if `.bash_history` exists in a directory, it
   becomes the active history file.
 - **History audit log**: commands are also appended to `.bash_history_audit`
@@ -63,6 +66,7 @@ High-impact functions in `.functions.external.bash`:
 - `vimp` (vim + optional line number parsing)
 - `hibp` (Have I Been Pwned password check)
 - `dotfiles_profile` (switch feature profiles)
+- `dotfiles_update` (update dotfiles + reload shell)
 - `audit_bash_history` (inspect command audit log)
 
 High-impact reload helpers in `.functions.external.bash`:
@@ -89,6 +93,17 @@ It rsyncs to `$HOME` while excluding `.disabled`, scripts, and docs.
 Use `set -- -f; source bootstrap.sh` to skip confirmation.
 Bootstrap also attempts to install `bash-completion` when no loader script is
 detected.
+
+Bootstrap update-related env knobs:
+- `DOTFILES_BOOTSTRAP_NO_SOURCE_PROFILE=true` skips `source ~/.bash_profile`.
+- `DOTFILES_BOOTSTRAP_PERSIST_REPO_DIR=true|false` controls whether
+  `~/.dotfiles_repo_dir` is written.
+
+Dotfiles repo resolution order used by update checks and `dotfiles_update`:
+1. `DOTFILES_REPO_DIR` (if set and valid git repo)
+2. `~/.dotfiles_repo_dir`
+3. `~/dotFiles`
+4. `~/dotfiles`
 
 ## Other Notable Files
 

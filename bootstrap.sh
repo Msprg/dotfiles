@@ -1,11 +1,24 @@
 #!/usr/bin/env bash
 
 cd "$(dirname "${BASH_SOURCE}")";
+DOTFILES_BOOTSTRAP_SOURCE_DIR="$(pwd -P)";
 
-git pull origin main;
+dotfiles_bootstrap_branch='main';
+dotfiles_origin_head_ref="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2> /dev/null || true)";
+if [[ -n "$dotfiles_origin_head_ref" && "$dotfiles_origin_head_ref" == origin/* ]]; then
+	dotfiles_bootstrap_branch="${dotfiles_origin_head_ref#origin/}";
+fi;
+git pull origin "$dotfiles_bootstrap_branch";
 
 function _command_exists() {
 	command -v "$1" > /dev/null 2>&1;
+}
+
+function _is_true() {
+	case "${1:-}" in
+		1|[Tt][Rr][Uu][Ee]|[Yy][Ee][Ss]|[Oo][Nn]) return 0 ;;
+	esac;
+	return 1;
 }
 
 function _run_with_privileges() {
@@ -100,6 +113,22 @@ function ensure_bash_completion() {
 	fi;
 }
 
+function persist_dotfiles_repo_dir() {
+	local persist_enabled="${DOTFILES_BOOTSTRAP_PERSIST_REPO_DIR:-true}";
+	local marker_file="$HOME/.dotfiles_repo_dir";
+	local marker_value="${DOTFILES_BOOTSTRAP_REPO_DIR_VALUE:-$DOTFILES_BOOTSTRAP_SOURCE_DIR}";
+
+	if ! _is_true "$persist_enabled"; then
+		return 0;
+	fi;
+
+	if [ -z "$marker_value" ]; then
+		return 0;
+	fi;
+
+	printf '%s\n' "$marker_value" > "$marker_file";
+}
+
 function doIt() {
 	rsync --exclude ".git/" \
 		--exclude ".DS_Store" \
@@ -110,7 +139,11 @@ function doIt() {
 		--exclude "*.txt" \
 		-avh --no-perms . ~;
 	ensure_bash_completion;
-	source ~/.bash_profile;
+	persist_dotfiles_repo_dir;
+
+	if ! _is_true "${DOTFILES_BOOTSTRAP_NO_SOURCE_PROFILE:-false}"; then
+		source ~/.bash_profile;
+	fi;
 }
 
 if [ "$1" == "--force" -o "$1" == "-f" ]; then
@@ -122,4 +155,5 @@ else
 		doIt;
 	fi;
 fi;
-unset _command_exists _run_with_privileges _has_bash_completion_loader _install_bash_completion ensure_bash_completion doIt;
+unset _command_exists _is_true _run_with_privileges _has_bash_completion_loader _install_bash_completion ensure_bash_completion persist_dotfiles_repo_dir doIt;
+unset DOTFILES_BOOTSTRAP_SOURCE_DIR dotfiles_bootstrap_branch dotfiles_origin_head_ref;
