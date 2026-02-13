@@ -19,9 +19,9 @@ Notes:
 
 ## Behavior That Affects Automation
 
-- **Auto-loads `.env`**: when you `cd` into a directory, `.functions` loads
-  `.env` (and unloads the previous one). This can change environment variables
-  unexpectedly.
+- **Auto-loads `.env`**: `.functions` loads/unloads `.env` when directory
+  context changes and also reloads when the active `.env` file is edited. This
+  can change environment variables unexpectedly.
 - **Per-directory Bash history**: if `.bash_history` exists in a directory, it
   becomes the active history file.
 - **History audit log**: commands are also appended to `.bash_history_audit`

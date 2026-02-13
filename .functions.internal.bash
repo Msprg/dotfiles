@@ -176,26 +176,65 @@ function changing_directory {
 #	fi
 #}
 
+function unload_dot_env_vars {
+	if [ "${#__dotfiles_loaded_env_vars[@]}" -gt 0 ]; then
+		unset "${__dotfiles_loaded_env_vars[@]}"
+	fi
+	__dotfiles_loaded_env_vars=()
+}
+
+function get_dot_env_signature {
+	local env_file="$1"
+	local checksum size remainder
+
+	[ -f "$env_file" ] || return 1
+	read -r checksum size remainder < <(cksum < "$env_file")
+	printf '%s:%s\n' "$checksum" "$size"
+}
+
 function check_for_dot_env {
-	# Unload prev .env if any
-	if [ -n "$OLDPWD" ] && [ -f "$OLDPWD/.env" ]; then
-		local env_vars=()
-		while IFS= read -r line; do
-			if [[ "$line" =~ ^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)= ]]; then
-				env_vars+=("${BASH_REMATCH[2]}")
-			fi
-		done < "$OLDPWD/.env"
-		if [ "${#env_vars[@]}" -gt 0 ]; then
-			unset "${env_vars[@]}"
+	local current_env_file="$PWD/.env"
+	local env_signature source_status=0
+	local env_vars=()
+	local line
+
+	if [ ! -f "$current_env_file" ]; then
+		if [ -n "${__dotfiles_loaded_env_file:-}" ]; then
+			unload_dot_env_vars
+			__dotfiles_loaded_env_file=''
+			__dotfiles_loaded_env_signature=''
 		fi
+		return 0
 	fi
 
-	if [ -e .env ]; then
-		set -o allexport
-		source .env
-		set +o allexport
-		echo "Loaded .env"
+	env_signature="$(get_dot_env_signature "$current_env_file")" || return 1
+	if [[ "${__dotfiles_loaded_env_file:-}" == "$current_env_file" && "${__dotfiles_loaded_env_signature:-}" == "$env_signature" ]]; then
+		return 0
 	fi
+
+	if [ -n "${__dotfiles_loaded_env_file:-}" ]; then
+		unload_dot_env_vars
+	fi
+	__dotfiles_loaded_env_file=''
+	__dotfiles_loaded_env_signature=''
+
+	while IFS= read -r line || [ -n "$line" ]; do
+		if [[ "$line" =~ ^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)= ]]; then
+			env_vars+=("${BASH_REMATCH[2]}")
+		fi
+	done < "$current_env_file"
+
+	set -o allexport
+	source "$current_env_file" || source_status=$?
+	set +o allexport
+	if [ "$source_status" -ne 0 ]; then
+		return "$source_status"
+	fi
+
+	__dotfiles_loaded_env_vars=("${env_vars[@]}")
+	__dotfiles_loaded_env_file="$current_env_file"
+	__dotfiles_loaded_env_signature="$env_signature"
+	echo "Loaded .env"
 }
 
 # https://stackoverflow.com/a/34812608
@@ -265,6 +304,9 @@ checkmark='✓'
 __dotfiles_last_pwd="$PWD"
 __dotfiles_last_audit_histcmd=''
 __dotfiles_prompt_last_exit_code=0
+__dotfiles_loaded_env_file=''
+__dotfiles_loaded_env_signature=''
+__dotfiles_loaded_env_vars=()
 
 if [[ "${DOTFILES_FEATURE_TRACK_COMMAND_DURATION:-true}" == "true" ]]; then
 	function __dotfiles_supports_ps0 {
@@ -325,6 +367,10 @@ function do_my_checks {
 	last_cmd_exit_code="${__dotfiles_prompt_last_exit_code:-$?}"
 	timer_stop # call asap after acquiring the last exit code
 	append_bash_history_audit
+
+	if [[ "${DOTFILES_FEATURE_AUTO_DOT_ENV:-true}" == "true" ]]; then
+		check_for_dot_env
+	fi
 
 	if ! changing_directory; then
 		local long_threshold_us divider_threshold_us metadata_mode
@@ -444,11 +490,6 @@ function do_my_checks {
 
 #	check_for_nvmrc
 #	check_for_ruby_version
-	if [[ "${DOTFILES_FEATURE_AUTO_DOT_ENV:-true}" == "true" ]]; then
-		check_for_dot_env
-	elif [[ "$DOTFILES_DEBUG" == "true" && "${DOTFILES_DEBUG_PROMPT_VERBOSE:-false}" == "true" ]]; then
-		dotfiles_dbg "do_my_checks skipped check_for_dot_env (DOTFILES_FEATURE_AUTO_DOT_ENV=false)"
-	fi
 
 #	set_macos_terminal_tab_title
 }

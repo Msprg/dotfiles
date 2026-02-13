@@ -76,7 +76,8 @@ Profile settings are resolved in `~/.dotfiles_features` plus optional overrides 
   `DOTFILES_FEATURE_TRACK_COMMAND_DURATION_METHOD`.
 - `PROMPT_COMMAND` is normalized to preserve existing hooks while adding:
   `capture_prompt_exit_status` and `do_my_checks`.
-- `.env` auto-load/unload runs on directory change (toggle:
+- `.env` auto-load/unload runs in prompt hooks: entering/leaving directories and
+  editing the active `.env` both trigger reload/unload (toggle:
   `DOTFILES_FEATURE_AUTO_DOT_ENV`).
 - Per-directory history switches to local `.bash_history` files when present
   (toggle: `DOTFILES_FEATURE_LOCAL_HISTORY`).
