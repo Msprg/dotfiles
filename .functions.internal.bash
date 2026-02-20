@@ -40,15 +40,38 @@ function audit_history_file_path {
 function ensure_audit_history_file {
 	local audit_file
 	local audit_dir
+	local mkdir_rc touch_rc chmod_rc
 
 	audit_file="$(audit_history_file_path)"
 	audit_dir="$(dirname "$audit_file")"
+	dotfiles_dbg ".FUNCTIONS audit ensure file: HISTFILE='${HISTFILE:-}' audit_file='$audit_file' audit_dir='$audit_dir'"
 
-	mkdir -p "$audit_dir" || return 1
-	if [ ! -e "$audit_file" ]; then
-		touch "$audit_file" || return 1
-		chmod 600 "$audit_file" || return 1
+	mkdir -p "$audit_dir"
+	mkdir_rc=$?
+	if [ "$mkdir_rc" -ne 0 ]; then
+		dotfiles_dbg ".FUNCTIONS audit ensure file failed: mkdir -p '$audit_dir' rc=$mkdir_rc"
+		return 1
 	fi
+	if [ ! -e "$audit_file" ]; then
+		dotfiles_dbg ".FUNCTIONS audit ensure file creating '$audit_file'"
+		touch "$audit_file"
+		touch_rc=$?
+		if [ "$touch_rc" -ne 0 ]; then
+			dotfiles_dbg ".FUNCTIONS audit ensure file failed: touch '$audit_file' rc=$touch_rc"
+			return 1
+		fi
+		chmod 600 "$audit_file"
+		chmod_rc=$?
+		if [ "$chmod_rc" -ne 0 ]; then
+			dotfiles_dbg ".FUNCTIONS audit ensure file failed: chmod 600 '$audit_file' rc=$chmod_rc"
+			return 1
+		fi
+		dotfiles_dbg ".FUNCTIONS audit ensure file created '$audit_file' with mode 600"
+	elif [ ! -w "$audit_file" ]; then
+		dotfiles_dbg ".FUNCTIONS audit ensure file warning: '$audit_file' exists but is not writable"
+	fi
+
+	dotfiles_dbg ".FUNCTIONS audit ensure file ready: '$audit_file'"
 }
 
 function last_history_command_for_audit {
@@ -57,16 +80,21 @@ function last_history_command_for_audit {
 
 	# `fc -ln -1` prefixes entries with one leading whitespace character.
 	command_raw="$(builtin fc -ln -1 | sed 's/^[[:space:]]//')"
-	[ -z "$command_raw" ] && return 1
+	if [ -z "$command_raw" ]; then
+		dotfiles_dbg ".FUNCTIONS audit command read skipped: empty command from fc -ln -1 (HISTCMD='${HISTCMD:-}')"
+		return 1
+	fi
 
 	# Keep single-line commands human-readable; only escape multiline entries
 	# to keep the TSV audit log one-record-per-line.
 	if [[ "$command_raw" == *$'\n'* ]]; then
 		printf -v command_escaped '%q' "$command_raw"
+		dotfiles_dbg ".FUNCTIONS audit command read multiline: raw_len=${#command_raw} escaped_len=${#command_escaped}"
 		printf '%s\n' "$command_escaped"
 		return
 	fi
 
+	dotfiles_dbg ".FUNCTIONS audit command read single-line: len=${#command_raw}"
 	printf '%s\n' "$command_raw"
 }
 
@@ -74,15 +102,41 @@ function append_bash_history_audit {
 	local current_histcmd="${HISTCMD:-}"
 	local audit_file timestamp history_user history_user_display command_for_audit
 	local cmd_exit duration_us duration_display
+	local command_read_rc ensure_rc append_rc
+	local audit_file_writable='false'
+	local audit_dir_writable='false'
 
-	[ -z "$current_histcmd" ] && return 0
+	if [ -z "$current_histcmd" ]; then
+		dotfiles_dbg ".FUNCTIONS audit append skipped: HISTCMD is empty"
+		return 0
+	fi
 	if [ "$current_histcmd" = "${__dotfiles_last_audit_histcmd:-}" ]; then
+		dotfiles_dbg ".FUNCTIONS audit append skipped: HISTCMD='$current_histcmd' already audited"
 		return 0
 	fi
 
-	command_for_audit="$(last_history_command_for_audit)" || return 0
-	ensure_audit_history_file || return 0
+	dotfiles_dbg ".FUNCTIONS audit append start: HISTCMD='$current_histcmd' last_audited='${__dotfiles_last_audit_histcmd:-}' HISTFILE='${HISTFILE:-$HOME/.bash_history}'"
+	command_for_audit="$(last_history_command_for_audit)"
+	command_read_rc=$?
+	if [ "$command_read_rc" -ne 0 ]; then
+		dotfiles_dbg ".FUNCTIONS audit append skipped: command read failed rc=$command_read_rc"
+		return 0
+	fi
+	dotfiles_dbg ".FUNCTIONS audit append command ready: len=${#command_for_audit}"
+
+	ensure_audit_history_file
+	ensure_rc=$?
+	if [ "$ensure_rc" -ne 0 ]; then
+		dotfiles_dbg ".FUNCTIONS audit append skipped: ensure_audit_history_file failed rc=$ensure_rc"
+		return 0
+	fi
 	audit_file="$(audit_history_file_path)"
+	if [ -w "$audit_file" ]; then
+		audit_file_writable='true'
+	fi
+	if [ -w "$(dirname "$audit_file")" ]; then
+		audit_dir_writable='true'
+	fi
 
 	timestamp="$(date '+%Y-%m-%dT%H:%M:%S%z')"
 	history_user="${BASH_HISTORY_USERNAME:-${USER:-unknown}}"
@@ -93,10 +147,16 @@ function append_bash_history_audit {
 	cmd_exit="${last_cmd_exit_code:-0}"
 	duration_us="${_last_cmd_us:-0}"
 	duration_display="$(format_duration_us "$duration_us")"
+	dotfiles_dbg ".FUNCTIONS audit append write attempt: file='$audit_file' file_writable=$audit_file_writable dir_writable=$audit_dir_writable exit=$cmd_exit duration_us=$duration_us duration='$duration_display'"
 
-	if printf '%-24s  %-24s  exit:%-3s  took:%-9s  %s\n' \
-		"$timestamp" "$history_user_display" "$cmd_exit" "$duration_display" "$command_for_audit" >> "$audit_file"; then
+	printf '%-24s  %-24s  exit:%-3s  took:%-9s  %s\n' \
+		"$timestamp" "$history_user_display" "$cmd_exit" "$duration_display" "$command_for_audit" >> "$audit_file"
+	append_rc=$?
+	if [ "$append_rc" -eq 0 ]; then
 		__dotfiles_last_audit_histcmd="$current_histcmd"
+		dotfiles_dbg ".FUNCTIONS audit append success: HISTCMD='$current_histcmd' recorded in '$audit_file'"
+	else
+		dotfiles_dbg ".FUNCTIONS audit append failed: rc=$append_rc file='$audit_file' file_writable=$audit_file_writable dir_writable=$audit_dir_writable"
 	fi
 }
 
