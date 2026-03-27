@@ -81,7 +81,7 @@ function last_history_command_for_audit {
 	# `fc -ln -1` prefixes entries with one leading whitespace character.
 	command_raw="$(builtin fc -ln -1 | sed 's/^[[:space:]]//')"
 	if [ -z "$command_raw" ]; then
-		dotfiles_dbg ".FUNCTIONS audit command read skipped: empty command from fc -ln -1 (HISTCMD='${HISTCMD:-}')"
+		dotfiles_dbg ".FUNCTIONS audit command read skipped: empty command from fc -ln -1" >&2
 		return 1
 	fi
 
@@ -89,33 +89,87 @@ function last_history_command_for_audit {
 	# to keep the TSV audit log one-record-per-line.
 	if [[ "$command_raw" == *$'\n'* ]]; then
 		printf -v command_escaped '%q' "$command_raw"
-		dotfiles_dbg ".FUNCTIONS audit command read multiline: raw_len=${#command_raw} escaped_len=${#command_escaped}"
+		dotfiles_dbg ".FUNCTIONS audit command read multiline: raw_len=${#command_raw} escaped_len=${#command_escaped}" >&2
 		printf '%s\n' "$command_escaped"
 		return
 	fi
 
-	dotfiles_dbg ".FUNCTIONS audit command read single-line: len=${#command_raw}"
+	dotfiles_dbg ".FUNCTIONS audit command read single-line: len=${#command_raw}" >&2
 	printf '%s\n' "$command_raw"
 }
 
+function last_history_event_id_for_audit {
+	local history_line
+
+	history_line="$(builtin history 1)"
+	if [[ "$history_line" =~ ^[[:space:]]*([0-9]+)[[:space:]] ]]; then
+		printf '%s\n' "${BASH_REMATCH[1]}"
+		return 0
+	fi
+
+	dotfiles_dbg ".FUNCTIONS audit event read skipped: could not parse history event from history 1" >&2
+	return 1
+}
+
+function parse_audit_line_for_dedupe {
+	local audit_line="$1"
+
+	# Expected format:
+	# <timestamp>  <user>  exit:<code>  took:<duration>  <command>
+	if [[ "$audit_line" =~ ^([^[:space:]]+)[[:space:]]{2,}([^[:space:]]+)[[:space:]]{2,}exit:[[:space:]]*([-0-9]+)[[:space:]]{2,}took:[^[:space:]]+[[:space:]]{2,}(.*)$ ]]; then
+		printf '%s\t%s\t%s\n' "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}" "${BASH_REMATCH[4]}"
+		return 0
+	fi
+
+	return 1
+}
+
+function replace_last_line_in_file {
+	local target_file="$1"
+	local replacement_line="$2"
+	local target_dir temp_file
+
+	target_dir="$(dirname "$target_file")"
+	temp_file="$(mktemp "$target_dir/.bash_history_audit.tmp.XXXXXX")" || return 1
+
+	if [ -s "$target_file" ]; then
+		sed '$d' "$target_file" > "$temp_file" || {
+			rm -f "$temp_file"
+			return 1
+		}
+	fi
+
+	printf '%s\n' "$replacement_line" >> "$temp_file" || {
+		rm -f "$temp_file"
+		return 1
+	}
+
+	mv "$temp_file" "$target_file" || {
+		rm -f "$temp_file"
+		return 1
+	}
+}
+
 function append_bash_history_audit {
-	local current_histcmd="${HISTCMD:-}"
-	local audit_file timestamp history_user history_user_display command_for_audit
+	local audit_file timestamp history_user command_for_audit
 	local cmd_exit duration_us duration_display
-	local command_read_rc ensure_rc append_rc
+	local command_read_rc ensure_rc write_rc
+	local history_event history_key current_histfile
 	local audit_file_writable='false'
 	local audit_dir_writable='false'
+	local audit_line lock_file lock_fd lock_rc
+	local last_audit_line last_audit_user last_audit_exit last_audit_command parsed_last_line
+	local should_replace='false'
 
-	if [ -z "$current_histcmd" ]; then
-		dotfiles_dbg ".FUNCTIONS audit append skipped: HISTCMD is empty"
+	history_event="$(last_history_event_id_for_audit)" || return 0
+	current_histfile="${HISTFILE:-$HOME/.bash_history}"
+	history_key="${current_histfile}:${history_event}"
+	if [ "$history_key" = "${__dotfiles_last_audit_history_key:-}" ]; then
+		dotfiles_dbg ".FUNCTIONS audit append skipped: history event '$history_key' already audited"
 		return 0
 	fi
-	if [ "$current_histcmd" = "${__dotfiles_last_audit_histcmd:-}" ]; then
-		dotfiles_dbg ".FUNCTIONS audit append skipped: HISTCMD='$current_histcmd' already audited"
-		return 0
-	fi
 
-	dotfiles_dbg ".FUNCTIONS audit append start: HISTCMD='$current_histcmd' last_audited='${__dotfiles_last_audit_histcmd:-}' HISTFILE='${HISTFILE:-$HOME/.bash_history}'"
+	dotfiles_dbg ".FUNCTIONS audit append start: history_event='$history_event' history_key='$history_key' last_audited='${__dotfiles_last_audit_history_key:-}' HISTFILE='$current_histfile'"
 	command_for_audit="$(last_history_command_for_audit)"
 	command_read_rc=$?
 	if [ "$command_read_rc" -ne 0 ]; then
@@ -140,23 +194,69 @@ function append_bash_history_audit {
 
 	timestamp="$(date '+%Y-%m-%dT%H:%M:%S%z')"
 	history_user="${BASH_HISTORY_USERNAME:-${USER:-unknown}}"
-	history_user_display="$history_user"
-	if [ "${#history_user_display}" -gt 24 ]; then
-		history_user_display="${history_user_display:0:21}..."
-	fi
 	cmd_exit="${last_cmd_exit_code:-0}"
 	duration_us="${_last_cmd_us:-0}"
 	duration_display="$(format_duration_us "$duration_us")"
 	dotfiles_dbg ".FUNCTIONS audit append write attempt: file='$audit_file' file_writable=$audit_file_writable dir_writable=$audit_dir_writable exit=$cmd_exit duration_us=$duration_us duration='$duration_display'"
 
-	printf '%-24s  %-24s  exit:%-3s  took:%-9s  %s\n' \
-		"$timestamp" "$history_user_display" "$cmd_exit" "$duration_display" "$command_for_audit" >> "$audit_file"
-	append_rc=$?
-	if [ "$append_rc" -eq 0 ]; then
-		__dotfiles_last_audit_histcmd="$current_histcmd"
-		dotfiles_dbg ".FUNCTIONS audit append success: HISTCMD='$current_histcmd' recorded in '$audit_file'"
+	printf -v audit_line '%-24s  %-24s  exit:%-3s  took:%-9s  %s' \
+		"$timestamp" "$history_user" "$cmd_exit" "$duration_display" "$command_for_audit"
+
+	lock_file="${audit_file}.lock"
+	lock_fd=''
+	if command -v flock > /dev/null 2>&1; then
+		exec {lock_fd}>>"$lock_file"
+		lock_rc=$?
+		if [ "$lock_rc" -ne 0 ]; then
+			dotfiles_dbg ".FUNCTIONS audit append lock open failed: lock='$lock_file' rc=$lock_rc"
+			return 0
+		fi
+		flock -x "$lock_fd"
+		lock_rc=$?
+		if [ "$lock_rc" -ne 0 ]; then
+			dotfiles_dbg ".FUNCTIONS audit append lock acquire failed: lock='$lock_file' rc=$lock_rc"
+			exec {lock_fd}>&-
+			return 0
+		fi
+	fi
+
+	if [ -s "$audit_file" ]; then
+		last_audit_line="$(tail -n 1 "$audit_file")"
+		parsed_last_line="$(parse_audit_line_for_dedupe "$last_audit_line")"
+		if [ $? -eq 0 ]; then
+			IFS=$'\t' read -r last_audit_user last_audit_exit last_audit_command <<< "$parsed_last_line"
+			if [ "$last_audit_user" = "$history_user" ] \
+				&& [ "$last_audit_exit" = "$cmd_exit" ] \
+				&& [ "$last_audit_command" = "$command_for_audit" ]; then
+				should_replace='true'
+			fi
+		fi
+	fi
+
+	if [ "$should_replace" = 'true' ]; then
+		replace_last_line_in_file "$audit_file" "$audit_line"
+		write_rc=$?
+		if [ "$write_rc" -eq 0 ]; then
+			dotfiles_dbg ".FUNCTIONS audit append replaced last entry: user='$history_user' exit=$cmd_exit"
+		fi
 	else
-		dotfiles_dbg ".FUNCTIONS audit append failed: rc=$append_rc file='$audit_file' file_writable=$audit_file_writable dir_writable=$audit_dir_writable"
+		printf '%s\n' "$audit_line" >> "$audit_file"
+		write_rc=$?
+		if [ "$write_rc" -eq 0 ]; then
+			dotfiles_dbg ".FUNCTIONS audit append appended new entry: user='$history_user' exit=$cmd_exit"
+		fi
+	fi
+
+	if [ -n "$lock_fd" ]; then
+		flock -u "$lock_fd" > /dev/null 2>&1 || true
+		exec {lock_fd}>&-
+	fi
+
+	if [ "${write_rc:-1}" -eq 0 ]; then
+		__dotfiles_last_audit_history_key="$history_key"
+		dotfiles_dbg ".FUNCTIONS audit append success: history_event='$history_event' recorded in '$audit_file'"
+	else
+		dotfiles_dbg ".FUNCTIONS audit append failed: rc=${write_rc:-1} file='$audit_file' file_writable=$audit_file_writable dir_writable=$audit_dir_writable"
 	fi
 }
 
@@ -583,7 +683,7 @@ last_cmd_exit_code=$? # Here to init this env var on the dotfiles load
 fancyX='✗'
 checkmark='✓'
 __dotfiles_last_pwd="$PWD"
-__dotfiles_last_audit_histcmd=''
+__dotfiles_last_audit_history_key=''
 __dotfiles_prompt_last_exit_code=0
 __dotfiles_loaded_env_file=''
 __dotfiles_loaded_env_signature=''
