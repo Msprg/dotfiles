@@ -118,6 +118,16 @@ history file:
 
 - Default: `~/.bash_history_audit`
 - Format: `timestamp<TAB>user<TAB>exit<TAB>duration_us<TAB>command`
+- `user` comes from `BASH_HISTORY_USERNAME` when that variable is set; this is
+  intended for SSH setups that inject an audit identity from `authorized_keys`,
+  for example:
+  `environment="BASH_HISTORY_USERNAME=firstname.lastname" ssh-ed25519 ...`
+- To preserve that audit identity across `sudo -i` and `sudo su`, install the
+  sample sudoers snippet from
+  `init/dotfiles-bash-history.sudoers` with:
+  `visudo -f /etc/sudoers.d/dotfiles-bash-history`
+- `su -` and `sudo su -` are not covered by this setup because login-style
+  `su` resets the environment.
 
 Inspect audit log:
 

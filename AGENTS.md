@@ -29,7 +29,14 @@ Notes:
   becomes the active history file.
 - **History audit log**: commands are also appended to `.bash_history_audit`
   alongside timestamp, user, exit code, and command duration (microseconds).
-  Use `audit_bash_history [N]` to inspect records.
+  The `user` field is sourced from `BASH_HISTORY_USERNAME` when present, which
+  is expected to be injected by SSH via `authorized_keys`
+  `environment="BASH_HISTORY_USERNAME=..."` entries. Preserve it across
+  `sudo -i` and `sudo su` with
+  `Defaults env_keep += "BASH_HISTORY_USERNAME"` in
+  `/etc/sudoers.d/` (sample: `init/dotfiles-bash-history.sudoers`).
+  `su -` / `sudo su -` are not covered because login-style `su` resets the
+  environment. Use `audit_bash_history [N]` to inspect records.
 - **Prompt hooks**: `PROMPT_COMMAND` can run checks after every command (exit
   status, timing, env/history checks), depending on feature flags.
 - **Debug**: set `DOTFILES_DEBUG="true"` to log load steps.
