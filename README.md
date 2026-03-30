@@ -41,8 +41,15 @@ Full mode load order:
 
 Function file split:
 - `~/.functions` is a loader.
-- `~/.functions.internal.bash` contains internal dotfiles runtime hooks/helpers.
-- `~/.functions.external.bash` contains user-facing interactive function definitions.
+- `~/.functions.internal.bash` loads ordered modules from `~/.functions.internal.d/`.
+- `~/.functions.external.bash` loads ordered modules from `~/.functions.external.d/`.
+
+Current module split:
+- `~/.functions.internal.d/`: shared helpers, history, `.env`, update checks, prompt hooks
+- `~/.functions.external.d/`: core helpers, dotfiles commands, filesystem tools, Git helpers, network/media helpers
+
+The manifests use an explicit source order. Every listed module is required, and
+a missing or invalid module aborts the full runtime load with an error on stderr.
 
 Safe mode (`BASH_SAFE_MODE=true`) loads only:
 `~/.path` and `~/.exports`
@@ -56,6 +63,7 @@ Quick shell reload helpers:
 - `safe_reload`: restart login shell in safe mode.
 - `debug_reload`: restart login shell with `DOTFILES_DEBUG=true`.
 - `dotfiles_update`: update dotfiles from GitHub (or configured repo source) and reload.
+- `DOTFILES_DEBUG_FIND=true`: print the `f` helper's generated grep command.
 
 Profile helper:
 
@@ -110,6 +118,9 @@ Repo resolution order for checks/updates:
   `DOTFILES_FEATURE_DOTFILES_UPDATE_CHECK`,
   `DOTFILES_FEATURE_DOTFILES_UPDATE_CHECK_SCOPE`,
   `DOTFILES_FEATURE_DOTFILES_UPDATE_CHECK_INTERVAL_SECONDS`.
+- The runtime modules are sourced in an explicit order rather than discovered
+  dynamically, which keeps startup overhead predictable while still making the
+  codebase easier to navigate.
 
 ## History Audit
 
@@ -118,6 +129,16 @@ history file:
 
 - Default: `~/.bash_history_audit`
 - Format: `timestamp<TAB>user<TAB>exit<TAB>duration_us<TAB>command`
+- `user` comes from `BASH_HISTORY_USERNAME` when that variable is set; this is
+  intended for SSH setups that inject an audit identity from `authorized_keys`,
+  for example:
+  `environment="BASH_HISTORY_USERNAME=firstname.lastname" ssh-ed25519 ...`
+- To preserve that audit identity across `sudo -i` and `sudo su`, install the
+  sample sudoers snippet from
+  `init/dotfiles-bash-history.sudoers` with:
+  `visudo -f /etc/sudoers.d/dotfiles-bash-history`
+- `su -` and `sudo su -` are not covered by this setup because login-style
+  `su` resets the environment.
 
 Inspect audit log:
 
@@ -143,6 +164,12 @@ audit_bash_history 100
 - `server [port]`: starts `copyparty` in current directory (with periodic update checks).
 - `hibp`: Have I Been Pwned password range check.
 - `vimp path[:line]`: open Vim and jump to line.
+- `vimp path:line:matching text`: open grep-style output at the matched line.
+
+## Runtime Validation
+
+Run `tests/bash-runtime.sh` from any directory to check module syntax, required
+module failure handling, full/safe profile loading, and key helper behavior.
 
 ## Local Customization Files
 

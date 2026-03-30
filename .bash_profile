@@ -69,8 +69,21 @@ else
 	for file in ~/.{path,dotfiles_features,bash_prompt,exports,functions,extra,systemspecific}; do
 		if [ -r "$file" ] && [ -f "$file" ]; then
 			dotfiles_dbg "Sourcing $file"
-			source "$file";
+			if [ "$file" = "$HOME/.functions" ]; then
+				if ! source "$file"; then
+					printf 'dotfiles: failed to source configuration file: %s\n' "$file" >&2
+					unset file
+					return 1
+				fi
+			else
+				source "$file"
+			fi
 		else
+			if [ "$file" = "$HOME/.functions" ]; then
+				printf 'dotfiles: required configuration file is missing or unreadable: %s\n' "$file" >&2
+				unset file
+				return 1
+			fi
 			dotfiles_dbg "Skipping missing/unreadable $file"
 		fi
 	done;
@@ -337,12 +350,14 @@ unset -f _register_git_alias_completion_callbacks;
 unset alias_line alias_name alias_value git_alias_names;
 
 # Add tab completion for SSH hostnames based on ~/.ssh/config, ignoring wildcards
-[ -e "$HOME/.ssh/config" ] && complete -o "default" -o "nospace" -W "$(grep "^Host" ~/.ssh/config | grep -v "[?*]" | cut -d " " -f2- | tr ' ' '\n')" scp sftp ssh;
+if [ -e "$HOME/.ssh/config" ]; then
+	complete -o "default" -o "nospace" -W "$(grep "^Host" ~/.ssh/config | grep -v "[?*]" | cut -d " " -f2- | tr ' ' '\n')" scp sftp ssh;
+fi
 
 # Add tab completion for `defaults read|write NSGlobalDomain`
 # You could just use `-g` instead, but I like being explicit
 #complete -W "NSGlobalDomain" defaults;
 
-dotfiles_dbg "Full interactive load path completed"
+	dotfiles_dbg "Full interactive load path completed" || true
 
 fi # end BASH_SAFE_MODE check
