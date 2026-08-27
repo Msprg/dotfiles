@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+[[ $DOTFILES_DEBUG == "true" ]] && echo "[DOTFILE_DBG: Executing .DOTFILES_LOCAL_ADDITIONS]"
+
+# Installers (claude, codex, cursor-agent, nvm, conda, rustup, pnpm, ...)
+# append PATH/init lines to the end of ~/.bashrc or ~/.bash_profile. Both files
+# are overwritten by bootstrap.sh / dotfiles_update, so at every shell start
+# anything found below their local-additions marker is MOVED into
+# ~/.systemspecific (never touched by bootstrap, sourced by the full and agent
+# load paths) and removed from the rc file. This runs before ~/.systemspecific
+# is sourced, so moved lines take effect in the very same shell.
+#
+# - Paragraphs (blank-line separated blocks) that already exist verbatim in
+#   the target are not appended again, so re-running installers is harmless.
+# - Concurrent shell starts are serialized with flock (when available).
+# - Legacy rc files without the marker are handled too: ~/.bashrc after its
+#   `source ~/.bash_profile` line, ~/.bash_profile after its closing
+#   `fi # end ... check` line.
+#
+# Knob: DOTFILES_LOCAL_ADDITIONS_FILE (default ~/.systemspecific).
+
+DOTFILES_LOCAL_ADDITIONS_MARKER='# >>> dotfiles: local additions below this line survive bootstrap/update >>>'
+
+# Reads $1 into __dla_lines and sets __dla_anchor to the index of the marker
+# (or legacy anchor) line. Returns 1 when there is no anchor.
+function __dotfiles_local_additions_anchor {
+	local file="$1" i n
+	__dla_anchor=-1
+	mapfile -t __dla_lines < "$file" 2> /dev/null || return 1
+	n=${#__dla_lines[@]}
+
+	for (( i = 0; i < n; i++ )); do
+		if [ "${__dla_lines[i]}" = "$DOTFILES_LOCAL_ADDITIONS_MARKER" ]; then
+			__dla_anchor=$i
+			return 0
+		fi
+	done
+
+	case "${file##*/}" in
+		.bashrc)
+			for (( i = 0; i < n; i++ )); do
+				case "${__dla_lines[i]}" in
+					*'source ~/.bash_profile'*) __dla_anchor=$i; break ;;
+				esac
+			done
+			;;
+		.bash_profile)
+			for (( i = 0; i < n; i++ )); do
+				case "${__dla_lines[i]}" in
+					'fi # end '*check) __dla_anchor=$i ;;
+				esac
+			done
+			;;
+	esac
+
+	[ "$__dla_anchor" -ge 0 ]
+}
+
+# True when $1 has non-blank content below its anchor.
+function __dotfiles_local_additions_has_tail {
+	local i
+	__dotfiles_local_additions_anchor "$1" || return 1
+	for (( i = __dla_anchor + 1; i < ${#__dla_lines[@]}; i++ )); do
+		[ -n "${__dla_lines[i]//[[:space:]]/}" ] && return 0
+	done
+	return 1
+}
+
+# Move the tail of $1 into $2. Expects to run under the lock.
+function __dotfiles_local_additions_move_locked {
+	local file="$1" target="$2"
+	local i n line paragraph='' target_content='' header_written=0 moved=0
+
+	__dotfiles_local_additions_has_tail "$file" || return 0
+	n=${#__dla_lines[@]}
+	[ -f "$target" ] && target_content="$(< "$target")"
+
+	for (( i = __dla_anchor + 1; i <= n; i++ )); do
+		line=''
+		(( i < n )) && line="${__dla_lines[i]}"
+		if [ -n "${line//[[:space:]]/}" ]; then
+			paragraph+="${paragraph:+$'\n'}$line"
+			continue
+		fi
+		[ -n "$paragraph" ] || continue
+
+		if [[ "$target_content" != *"$paragraph"* ]]; then
+			if (( header_written == 0 )); then
+				printf '\n# --- moved from %s by dotfiles on %s ---\n' "${file/#$HOME/\~}" "$(date '+%Y-%m-%d %H:%M:%S')" >> "$target" || return 0
+				header_written=1
+			fi
+			printf '%s\n' "$paragraph" >> "$target" || return 0
+			target_content+=$'\n'"$paragraph"
+			moved=1
+		fi
+		paragraph=''
+	done
+
+	# Truncate the rc file back to its anchor line (in place: same inode/mode).
+	printf '%s\n' "${__dla_lines[@]:0:__dla_anchor + 1}" > "$file"
+	dotfiles_dbg "Local additions: moved tail of ${file/#$HOME/\~} to ${target/#$HOME/\~} (new content appended: $moved)"
+}
+
+function __dotfiles_local_additions_move {
+	local file="$1" target="$2" lock_fd='' target_existed=1
+
+	# Decide before the lock fd creates the file: a target we create ourselves
+	# gets mode 600 (installer lines may carry tokens).
+	[ -e "$target" ] || target_existed=0
+
+	if command -v flock > /dev/null 2>&1; then
+		exec {lock_fd}>> "$target" || return 0
+		if ! flock -w 5 "$lock_fd"; then
+			exec {lock_fd}>&-
+			return 0
+		fi
+	fi
+	__dotfiles_local_additions_move_locked "$file" "$target"
+	[ -n "$lock_fd" ] && exec {lock_fd}>&-
+	if (( target_existed == 0 )) && [ -f "$target" ]; then
+		chmod 600 "$target" 2> /dev/null
+	fi
+	return 0
+}
+
+function dotfiles_migrate_local_additions {
+	local target="${DOTFILES_LOCAL_ADDITIONS_FILE:-$HOME/.systemspecific}"
+	local file
+
+	for file in "$HOME/.bashrc" "$HOME/.bash_profile"; do
+		[ -f "$file" ] && [ -r "$file" ] && [ -w "$file" ] || continue
+		__dotfiles_local_additions_has_tail "$file" || continue
+		__dotfiles_local_additions_move "$file" "$target"
+	done
+	unset __dla_lines __dla_anchor
+}

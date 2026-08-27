@@ -10,14 +10,6 @@ fi
 dotfiles_dbg "--- S T A R T ---"
 dotfiles_dbg "Executing .BASH_PROFILE"
 
-# Re-entrancy guard: an old-style ~/.bashrc sourcing this file from inside the
-# local-additions pass below would otherwise recurse forever.
-if [ -n "${__dotfiles_profile_loading:-}" ]; then
-	dotfiles_dbg "Already loading .BASH_PROFILE; skipping nested load"
-	return 0 2> /dev/null || exit 0
-fi
-__dotfiles_profile_loading=1
-
 # Agent / non-interactive guard: decides DOTFILES_AGENT_MODE_ACTIVE before
 # anything else is loaded. See ~/.dotfiles_agent_guard for the knobs.
 DOTFILES_AGENT_MODE_ACTIVE='false'
@@ -26,6 +18,20 @@ if [ -r ~/.dotfiles_agent_guard ] && [ -f ~/.dotfiles_agent_guard ]; then
 	source ~/.dotfiles_agent_guard
 else
 	dotfiles_dbg "Skipping missing/unreadable ~/.dotfiles_agent_guard"
+fi
+
+# Move installer appends found below the local-additions markers of ~/.bashrc
+# and ~/.bash_profile into ~/.systemspecific before it gets sourced below.
+if [ -r ~/.dotfiles_local_additions ] && [ -f ~/.dotfiles_local_additions ]; then
+	dotfiles_dbg "Sourcing ~/.dotfiles_local_additions"
+	source ~/.dotfiles_local_additions
+	dotfiles_migrate_local_additions
+	unset -f dotfiles_migrate_local_additions __dotfiles_local_additions_anchor \
+		__dotfiles_local_additions_has_tail __dotfiles_local_additions_move \
+		__dotfiles_local_additions_move_locked
+	unset DOTFILES_LOCAL_ADDITIONS_MARKER
+else
+	dotfiles_dbg "Skipping missing/unreadable ~/.dotfiles_local_additions"
 fi
 
 # Load the shell dotfiles, and then some:
@@ -421,18 +427,8 @@ dotfiles_dbg "Full interactive load path completed"
 
 fi # end DOTFILES_AGENT_MODE_ACTIVE / BASH_SAFE_MODE check
 
-# Run the local-additions tail of ~/.bashrc (installer appends, nvm/conda init,
-# ...) in every load path. ~/.bashrc skips its own profile bootstrap while
-# __dotfiles_profile_loaded is set.
-if [ -r ~/.bashrc ] && [ -f ~/.bashrc ]; then
-	__dotfiles_profile_loaded=1
-	dotfiles_dbg "Sourcing ~/.bashrc for local additions"
-	source ~/.bashrc
-	unset __dotfiles_profile_loaded
-fi
-
-# Installer appends and ~/.exports may re-add directories; keep the first
-# occurrence of each PATH entry.
+# ~/.systemspecific (installer appends) and ~/.exports may re-add directories;
+# keep the first occurrence of each PATH entry.
 function __dotfiles_dedupe_path {
 	local entry deduped=''
 	local IFS=':'
@@ -449,8 +445,8 @@ function __dotfiles_dedupe_path {
 __dotfiles_dedupe_path
 unset -f __dotfiles_dedupe_path
 
-unset __dotfiles_profile_loading
 dotfiles_dbg "--- E N D ---"
 
-# Everything below the marker is preserved by bootstrap.sh / dotfiles_update.
+# Installers append below this marker; ~/.dotfiles_local_additions moves such
+# lines into ~/.systemspecific at the next shell start. Do not edit above.
 # >>> dotfiles: local additions below this line survive bootstrap/update >>>

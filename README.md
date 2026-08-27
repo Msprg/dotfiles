@@ -39,9 +39,9 @@ Interactive shells enter via `.bashrc`, which sources `.bash_profile`.
 Full mode load order:
 `~/.path_defaults` -> `~/.path` -> `~/.dotfiles_features` -> `~/.bash_prompt` -> `~/.exports` -> `~/.functions` -> `~/.extra` -> `~/.systemspecific` -> `~/.aliases/bash/aliases`
 
-Every load path (full, safe, agent) finishes by running the local-additions
-tail of `~/.bashrc` (see "Local Additions and Installer PATH Lines") and
-de-duplicating `PATH`.
+Every load path (full, safe, agent) first moves installer appends from
+`~/.bashrc` / `~/.bash_profile` into `~/.systemspecific` (see "Local Additions
+and Installer PATH Lines") and finishes by de-duplicating `PATH`.
 
 Function file split:
 - `~/.functions` is a loader.
@@ -70,17 +70,20 @@ you to. Two mechanisms make that work with these dotfiles:
   still go to `~/.path`, which is loaded afterwards and wins.
 - Both `~/.bashrc` and `~/.bash_profile` end with the marker
   `# >>> dotfiles: local additions below this line survive bootstrap/update >>>`.
-  Anything appended after it (which is where installers append) is
-  - preserved by `bootstrap.sh` / `dotfiles_update` when the files are
-    re-installed (legacy installs without the marker are migrated: lines after
-    the old last line are kept), and
-  - executed in every load path: `~/.bash_profile` sources the `~/.bashrc` tail
-    at its end, so login shells (`bash -l`, Codex's `bash -lc`), interactive
-    shells and agent-mode shells all see it. `ssh host cmd` style
-    non-interactive, non-login shells still load nothing.
+  At every shell start `~/.dotfiles_local_additions` (sourced first by
+  `~/.bash_profile`, in all modes) moves anything found below the marker into
+  `~/.systemspecific`, which bootstrap never touches, and truncates the rc file
+  back to the marker. Because `~/.systemspecific` is sourced later in the same
+  load, the moved lines take effect immediately, in login shells (`bash -l`,
+  Codex's `bash -lc`), interactive shells and agent mode alike; safe mode
+  moves but does not load them. Paragraphs already present in
+  `~/.systemspecific` are not duplicated, concurrent shell starts are
+  serialized with `flock`, and legacy rc files without the marker are handled
+  (`bootstrap.sh` runs the same migration once before overwriting them).
+  Override the target with `DOTFILES_LOCAL_ADDITIONS_FILE`.
 
 Edits *above* the marker are still overwritten by bootstrap; put those in
-`~/.extra`, `~/.path` or the repo.
+`~/.extra`, `~/.path`, `~/.systemspecific` or the repo.
 
 ## Agent / Non-Interactive Guard
 

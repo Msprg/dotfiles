@@ -129,44 +129,18 @@ function persist_dotfiles_repo_dir() {
 	printf '%s\n' "$marker_value" > "$marker_file";
 }
 
-DOTFILES_LOCAL_TAIL_MARKER='# >>> dotfiles: local additions below this line survive bootstrap/update >>>';
-
-# Print everything after the local-additions marker of an installed rc file.
-# Legacy installs without the marker fall back to the known last line of the
-# old templates so installer appends made before this feature are kept too.
-function _dotfiles_local_tail() {
-	local file="$1";
-	local marker_line='';
-
-	[ -f "$file" ] || return 0;
-	marker_line="$(grep -nF -- "$DOTFILES_LOCAL_TAIL_MARKER" "$file" | head -n 1 | cut -d: -f1)";
-	if [ -z "$marker_line" ]; then
-		case "$(basename "$file")" in
-			.bashrc) marker_line="$(grep -nE 'source ~/.bash_profile' "$file" | head -n 1 | cut -d: -f1)" ;;
-			.bash_profile) marker_line="$(grep -nE '^fi # end .*check$' "$file" | tail -n 1 | cut -d: -f1)" ;;
-		esac;
+# Installer appends below the rc markers are normally moved to ~/.systemspecific
+# by ~/.dotfiles_local_additions at shell start. Run the same migration once
+# before rsync so appends on legacy installs (no marker yet) are not lost.
+function migrate_local_additions() {
+	if [ -r ./.dotfiles_local_additions ]; then
+		source ./.dotfiles_local_additions;
+		dotfiles_migrate_local_additions;
 	fi;
-	[ -n "$marker_line" ] || return 0;
-	tail -n +"$((marker_line + 1))" "$file";
-}
-
-function _dotfiles_restore_local_tail() {
-	local file="$1";
-	local tail_content="$2";
-	local line_count;
-
-	[ -n "${tail_content//[[:space:]]/}" ] || return 0;
-	[ -f "$file" ] || return 0;
-	printf '%s\n' "$tail_content" >> "$file";
-	line_count="$(printf '%s\n' "$tail_content" | wc -l | tr -d ' ')";
-	printf 'Preserved %s line(s) of local additions in %s\n' "$line_count" "$file";
 }
 
 function doIt() {
-	local bashrc_tail bash_profile_tail;
-	bashrc_tail="$(_dotfiles_local_tail ~/.bashrc)";
-	bash_profile_tail="$(_dotfiles_local_tail ~/.bash_profile)";
-
+	migrate_local_additions;
 	rsync --exclude ".git/" \
 		--exclude ".DS_Store" \
 		--exclude ".osx" \
@@ -175,8 +149,6 @@ function doIt() {
 		--exclude "*.disabled" \
 		--exclude "*.txt" \
 		-avh --no-perms . ~;
-	_dotfiles_restore_local_tail ~/.bashrc "$bashrc_tail";
-	_dotfiles_restore_local_tail ~/.bash_profile "$bash_profile_tail";
 	ensure_bash_completion;
 	persist_dotfiles_repo_dir;
 
