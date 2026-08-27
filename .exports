@@ -2,7 +2,10 @@
 [[ $DOTFILES_DEBUG == "true" ]] && echo "[DOTFILE_DBG: Executing .EXPORTS]"
 
 # Add `~/bin` to the `$PATH`
-export PATH="$HOME/bin:$PATH";
+case ":$PATH:" in
+	*":$HOME/bin:"*) ;;
+	*) export PATH="$HOME/bin:$PATH" ;;
+esac
 
 # Make vim the default editor.
 export EDITOR='nano';

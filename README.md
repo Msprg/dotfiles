@@ -37,7 +37,11 @@ What `bootstrap.sh` does:
 Interactive shells enter via `.bashrc`, which sources `.bash_profile`.
 
 Full mode load order:
-`~/.path` -> `~/.dotfiles_features` -> `~/.bash_prompt` -> `~/.exports` -> `~/.functions` -> `~/.extra` -> `~/.systemspecific` -> `~/.aliases/bash/aliases`
+`~/.path_defaults` -> `~/.path` -> `~/.dotfiles_features` -> `~/.bash_prompt` -> `~/.exports` -> `~/.functions` -> `~/.extra` -> `~/.systemspecific` -> `~/.aliases/bash/aliases`
+
+Every load path (full, safe, agent) finishes by running the local-additions
+tail of `~/.bashrc` (see "Local Additions and Installer PATH Lines") and
+de-duplicating `PATH`.
 
 Function file split:
 - `~/.functions` is a loader.
@@ -45,12 +49,38 @@ Function file split:
 - `~/.functions.external.bash` contains user-facing interactive function definitions.
 
 Safe mode (`BASH_SAFE_MODE=true`) loads only:
-`~/.path` and `~/.exports`
+`~/.path_defaults`, `~/.path` and `~/.exports`
 
 In safe mode, prompt/functions/aliases/completions/PROMPT_COMMAND hooks are skipped.
 
 Agent mode (see below) loads only:
-`~/.path` -> `~/.exports` -> `~/.extra` -> `~/.systemspecific`
+`~/.path_defaults` -> `~/.path` -> `~/.exports` -> `~/.extra` -> `~/.systemspecific`
+
+## Local Additions and Installer PATH Lines
+
+Tool installers (`claude`, `codex`, `cursor-agent`, `nvm`, `conda`, `rustup`,
+`pnpm`, ...) either append `export PATH=...`/init lines to `~/.bashrc` or ask
+you to. Two mechanisms make that work with these dotfiles:
+
+- `~/.path_defaults` (committed) prepends well-known per-user tool directories
+  (`~/.local/bin`, `~/.cargo/bin`, `~/go/bin`, `~/.bun/bin`, `~/.deno/bin`,
+  `~/.volta/bin`, `~/.npm-global/bin`, `~/.local/share/pnpm`, `~/.opencode/bin`,
+  linuxbrew, `/snap/bin`, ...) whenever the directory exists, in every load
+  path. Most installers therefore need no rc-file edit at all. Private entries
+  still go to `~/.path`, which is loaded afterwards and wins.
+- Both `~/.bashrc` and `~/.bash_profile` end with the marker
+  `# >>> dotfiles: local additions below this line survive bootstrap/update >>>`.
+  Anything appended after it (which is where installers append) is
+  - preserved by `bootstrap.sh` / `dotfiles_update` when the files are
+    re-installed (legacy installs without the marker are migrated: lines after
+    the old last line are kept), and
+  - executed in every load path: `~/.bash_profile` sources the `~/.bashrc` tail
+    at its end, so login shells (`bash -l`, Codex's `bash -lc`), interactive
+    shells and agent-mode shells all see it. `ssh host cmd` style
+    non-interactive, non-login shells still load nothing.
+
+Edits *above* the marker are still overwritten by bootstrap; put those in
+`~/.extra`, `~/.path` or the repo.
 
 ## Agent / Non-Interactive Guard
 
@@ -80,6 +110,7 @@ Agent mode:
 - Exports `DOTFILES_AGENT=<name>` (e.g. `claude-code`, `codex`, `cursor`,
   `non-interactive`, `forced`) so scripts can tell.
 - Defines `reload` to restart as a full login shell with the guard disabled.
+- Records agent commands to a separate audit file (see "Agent Command Audit").
 
 Knobs (environment or `~/.dotfiles_agent_guard.local`, see
 `.dotfiles_agent_guard.local.example`):
@@ -159,10 +190,33 @@ Repo resolution order for checks/updates:
   `DOTFILES_FEATURE_DOTFILES_UPDATE_CHECK_SCOPE`,
   `DOTFILES_FEATURE_DOTFILES_UPDATE_CHECK_INTERVAL_SECONDS`.
 
+## Agent Command Audit
+
+Agent-mode shells record what agents run into a separate file,
+`~/.bash_history_audit_agent` (mode 600), one record per line:
+
+```
+timestamp  user  agent  exit:N  took:D  command
+```
+
+- `bash -c` shells (Codex CLI `bash -lc "<cmd>"`, cron): one record per
+  invocation with the full command string, exit code and duration, written from
+  an EXIT trap. No DEBUG trap is installed.
+- Interactive agent shells (Cursor/Cline/VS Code agent terminals, aider): one
+  record per prompt via `PROMPT_COMMAND` with exit code (no duration).
+- Claude Code never reads rc files for its tool calls; install the PostToolUse
+  hook `init/claude-code-audit-hook.sh` (instructions in the file header) to
+  feed the same log from Claude Code itself.
+- `user` comes from `BASH_HISTORY_USERNAME` like the regular audit.
+
+Read it with `audit_bash_history -a [N|-f]`. Knobs (env or
+`~/.dotfiles_agent_guard.local`): `DOTFILES_AGENT_AUDIT=false`,
+`DOTFILES_AGENT_AUDIT_FILE`, `DOTFILES_AGENT_AUDIT_MAX_CHARS` (default 4000).
+
 ## History Audit
 
-Every prompt cycle can append audit records to a sibling file of your active
-history file:
+Every prompt cycle of a full-mode (human) shell can append audit records to a
+sibling file of your active history file:
 
 - Default: `~/.bash_history_audit`
 - Format: `timestamp<TAB>user<TAB>exit<TAB>duration_us<TAB>command`

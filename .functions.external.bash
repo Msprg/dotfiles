@@ -69,7 +69,12 @@ ports() { if [[ -z "$*" ]]; then sudo netstat -pna; else sudo netstat -pna | gre
 function audit_bash_history {
 	local audit_file
 
-	audit_file="$(audit_history_file_path)"
+	if [ "${1:-}" = "-a" ] || [ "${1:-}" = "--agent" ]; then
+		shift
+		audit_file="${DOTFILES_AGENT_AUDIT_FILE:-$HOME/.bash_history_audit_agent}"
+	else
+		audit_file="$(audit_history_file_path)"
+	fi
 	if [ ! -s "$audit_file" ]; then
 		echo "No audit history found at $audit_file"
 		return 0
@@ -90,7 +95,7 @@ function audit_bash_history {
 		return
 	fi
 
-	echo "Usage: audit_bash_history [N|-f]"
+	echo "Usage: audit_bash_history [-a|--agent] [N|-f]"
 	return 1
 }
 

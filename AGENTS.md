@@ -7,16 +7,21 @@ agent work. It is meant to save you from surprises when running commands.
 
 The main shell entry point is `.bash_profile`, which sources config in this order:
 
-`~/.path` → `.dotfiles_features` → `.bash_prompt` → `.exports` → `.functions` → `.extra` →
-`.systemspecific` → `.aliases/bash/aliases`
+`~/.path_defaults` → `~/.path` → `.dotfiles_features` → `.bash_prompt` → `.exports` → `.functions` → `.extra` →
+`.systemspecific` → `.aliases/bash/aliases` → local-additions tail of `~/.bashrc` → PATH de-dup
 
 Notes:
 - `.bash_profile` first sources `.dotfiles_agent_guard`. When it detects a
   coding agent / harness (marker variables such as `CLAUDECODE`,
   `CODEX_SANDBOX*`, `CURSOR_AGENT`, `GEMINI_CLI`, `AGENT=...`) or a
   non-interactive shell, it takes the **agent load path** instead:
-  `~/.path` → `.exports` → `.extra` → `.systemspecific` and nothing else. See
-  "Agent Mode" below.
+  `~/.path_defaults` → `~/.path` → `.exports` → `.extra` → `.systemspecific`,
+  then the local-additions tail of `~/.bashrc`, and nothing else. See "Agent
+  Mode" below.
+- `~/.bashrc` and `~/.bash_profile` end with a marker line; content after it
+  (installer PATH lines, nvm/conda init) survives bootstrap and runs in every
+  load path. `~/.path_defaults` already adds the common tool dirs
+  (`~/.local/bin`, `~/.cargo/bin`, `~/go/bin`, ...), so prefer not appending.
 - `.bashrc` only sources `.bash_profile` for interactive shells.
 - If you need custom PATH or private overrides, use `~/.path` and `~/.extra`.
 - Feature toggles and profile defaults live in `~/.dotfiles_features`; optional
@@ -36,8 +41,14 @@ mode: `DOTFILES_AGENT` is exported (e.g. `claude-code`, `codex`, `cursor`,
 - Default shopt settings (`nocaseglob`, `autocd`, `cdspell`, `globstar` are
   **not** enabled).
 - `PAGER`, `GIT_PAGER`, `MANPAGER` default to `cat`; `CLICOLOR=0`.
-- Only `~/.path`, `~/.exports`, `~/.extra`, `~/.systemspecific` are loaded
+- Only `~/.path_defaults`, `~/.path`, `~/.exports`, `~/.extra`,
+  `~/.systemspecific` and the `~/.bashrc` local-additions tail are loaded
   (PATH, `EDITOR=nano`, history sizes, private per-machine settings).
+- Your commands are recorded: `bash -c` invocations (exit code, duration,
+  full command string) and interactive agent prompts go to
+  `~/.bash_history_audit_agent`; Claude Code tool calls are recorded by the
+  optional PostToolUse hook `init/claude-code-audit-hook.sh`. Disable with
+  `DOTFILES_AGENT_AUDIT=false`.
 
 Everything in "Behavior That Affects Automation" below therefore only applies
 when the guard is disabled (`DOTFILES_AGENT_GUARD=false`), the agent is listed
@@ -68,7 +79,9 @@ Guard knobs live in `.dotfiles_agent_guard` (env or
   `environment="BASH_HISTORY_USERNAME=..."` entries. Preserve it across
   `sudo -i` and `sudo su` with
   `Defaults env_keep += "BASH_HISTORY_USERNAME"` in
-  `/etc/sudoers.d/` (sample: `init/dotfiles-bash-history.sudoers`).
+  `/etc/sudoers.d/` (sample: `init/dotfiles-bash-history.sudoers`). Agent
+  commands go to the separate `.bash_history_audit_agent` (see "Agent Mode");
+  read it with `audit_bash_history -a`.
   `su -` / `sudo su -` are not covered because login-style `su` resets the
   environment. Use `audit_bash_history [N]` to inspect records.
 - **Prompt hooks**: `PROMPT_COMMAND` can run checks after every command (exit
@@ -153,6 +166,10 @@ Dotfiles repo resolution order used by update checks and `dotfiles_update`:
 
 - `.dotfiles_agent_guard`: agent / non-interactive detection sourced first by
   `.bash_profile`; `.dotfiles_agent_guard.local.example` documents overrides
+- `.dotfiles_agent_audit`: agent-mode command recorder (separate audit file)
+- `.path_defaults`: well-known tool directories added to PATH when present
+- `init/claude-code-audit-hook.sh`: Claude Code PostToolUse hook feeding the
+  agent audit log (repo-only, not rsynced)
 - `.inputrc`: readline completion and history settings
 - `.tmux.conf`: tmux prefix and keybindings
 - `.curlrc` / `.wgetrc`: networking defaults

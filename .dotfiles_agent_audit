@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+[[ $DOTFILES_DEBUG == "true" ]] && echo "[DOTFILE_DBG: Executing .DOTFILES_AGENT_AUDIT]"
+
+# Lightweight command audit for agent-mode shells (sourced by ~/.bash_profile
+# only when the agent guard is active). Records go to a separate file next to
+# the regular audit log, default ~/.bash_history_audit_agent:
+#
+#   timestamp  user  agent  exit:N  took:D  command
+#
+# How commands are captured:
+# - Non-interactive `bash -c` shells (Codex CLI: `bash -lc "<cmd>"`, cron, ...):
+#   one record per invocation with the complete command string
+#   ($BASH_EXECUTION_STRING), written from an EXIT trap with the final exit
+#   code and wall-clock duration. No DEBUG trap is installed.
+# - Interactive agent shells (Cursor / Cline / VS Code agent terminals, aider):
+#   one record per prompt via PROMPT_COMMAND, exit code included, no duration.
+# - Claude Code runs `bash -c` shells that read no rc file at all, only its
+#   snapshot; the only Claude shell reaching this file is the snapshot
+#   generator, which is skipped. Use init/claude-code-audit-hook.sh
+#   (a PostToolUse hook) to feed the same file.
+# - Non-interactive shells fed from stdin/a script file are not recorded.
+#
+# Knobs (env or ~/.dotfiles_agent_guard.local):
+#   DOTFILES_AGENT_AUDIT=false          disable
+#   DOTFILES_AGENT_AUDIT_FILE=<path>    override the file
+#   DOTFILES_AGENT_AUDIT_MAX_CHARS=N    truncate long commands (default 4000)
+#
+# Read it with `audit_bash_history -a [N|-f]` from a normal shell.
+
+function __dotfiles_agent_audit_enabled {
+	case "${DOTFILES_AGENT_AUDIT-true}" in
+		1|[Tt][Rr][Uu][Ee]|[Yy][Ee][Ss]|[Oo][Nn]) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+function __dotfiles_agent_audit_now_us {
+	local now
+	if [ -n "${EPOCHREALTIME:-}" ]; then
+		now="${EPOCHREALTIME/[.,]/}"
+		printf '%s\n' "$now"
+	else
+		now="$(date +%s%N)"
+		printf '%s\n' "$((now / 1000))"
+	fi
+}
+
+function __dotfiles_agent_audit_format_duration {
+	local us="${1:-0}" s tenths m
+	[[ "$us" =~ ^[0-9]+$ ]] || { printf '%s\n' '-'; return; }
+	if (( us < 1000 )); then
+		printf '%dus\n' "$us"
+	elif (( us < 1000000 )); then
+		printf '%dms\n' "$((us / 1000))"
+	elif (( us < 60000000 )); then
+		s=$((us / 1000000)); tenths=$(((us / 100000) % 10))
+		printf '%d.%ds\n' "$s" "$tenths"
+	else
+		m=$((us / 60000000)); s=$(((us / 1000000) % 60))
+		printf '%dm%02ds\n' "$m" "$s"
+	fi
+}
+
+# __dotfiles_agent_audit_write <exit_code> <duration_us|-> <command>
+function __dotfiles_agent_audit_write {
+	local cmd_exit="${1:-0}" duration_us="${2:--}" command_raw="${3-}"
+	local audit_file audit_dir timestamp history_user agent_name command_for_audit
+	local duration_display max_chars
+
+	[ -n "$command_raw" ] || return 0
+
+	audit_file="${DOTFILES_AGENT_AUDIT_FILE:-$HOME/.bash_history_audit_agent}"
+	audit_dir="${audit_file%/*}"
+	[ "$audit_dir" = "$audit_file" ] && audit_dir='.'
+	mkdir -p "$audit_dir" 2> /dev/null || return 0
+	if [ ! -e "$audit_file" ]; then
+		{ : > "$audit_file" && chmod 600 "$audit_file"; } 2> /dev/null || return 0
+	fi
+
+	max_chars="${DOTFILES_AGENT_AUDIT_MAX_CHARS:-4000}"
+	[[ "$max_chars" =~ ^[0-9]+$ ]] || max_chars=4000
+	if (( max_chars > 0 && ${#command_raw} > max_chars )); then
+		command_raw="${command_raw:0:max_chars} ...[truncated $(( ${#command_raw} - max_chars )) chars]"
+	fi
+
+	# Keep one record per line: escape only multi-line commands (same rule as
+	# the regular audit log).
+	if [[ "$command_raw" == *$'\n'* ]]; then
+		printf -v command_for_audit '%q' "$command_raw"
+	else
+		command_for_audit="$command_raw"
+	fi
+
+	timestamp="$(date '+%Y-%m-%dT%H:%M:%S%z')"
+	history_user="${BASH_HISTORY_USERNAME:-${USER:-unknown}}"
+	[ "${#history_user}" -gt 24 ] && history_user="${history_user:0:21}..."
+	agent_name="${DOTFILES_AGENT:-agent}"
+	[ "${#agent_name}" -gt 14 ] && agent_name="${agent_name:0:11}..."
+	duration_display="$(__dotfiles_agent_audit_format_duration "$duration_us")"
+
+	printf '%-24s  %-24s  %-14s  exit:%-3s  took:%-9s  %s\n' \
+		"$timestamp" "$history_user" "$agent_name" "$cmd_exit" "$duration_display" "$command_for_audit" >> "$audit_file" 2> /dev/null
+}
+
+function __dotfiles_agent_audit_on_exit {
+	local cmd_exit=$?
+	local now_us
+	now_us="$(__dotfiles_agent_audit_now_us)"
+	__dotfiles_agent_audit_write "$cmd_exit" "$((now_us - __dotfiles_agent_audit_start_us))" "${BASH_EXECUTION_STRING-}"
+}
+
+function __dotfiles_agent_audit_prompt {
+	local cmd_exit=$?
+	local current_histcmd="${HISTCMD:-}" command_raw
+
+	[ -n "$current_histcmd" ] || return 0
+	[ "$current_histcmd" = "${__dotfiles_agent_audit_last_histcmd:-}" ] && return 0
+	__dotfiles_agent_audit_last_histcmd="$current_histcmd"
+
+	command_raw="$(builtin fc -ln -1 2> /dev/null | sed 's/^[[:space:]]*//')"
+	[ -n "$command_raw" ] || return 0
+	__dotfiles_agent_audit_write "$cmd_exit" '-' "$command_raw"
+}
+
+if ! __dotfiles_agent_audit_enabled; then
+	dotfiles_dbg "Agent audit disabled via DOTFILES_AGENT_AUDIT=${DOTFILES_AGENT_AUDIT}"
+elif [ -n "${BASH_EXECUTION_STRING+x}" ] && [[ $- != *i* ]]; then
+	if [ "${DOTFILES_AGENT:-}" = 'claude-code' ]; then
+		# Only Claude Code's snapshot-generator shell gets here; its real tool
+		# calls never read rc files. Audited via init/claude-code-audit-hook.sh.
+		dotfiles_dbg "Agent audit: skipping claude-code snapshot shell"
+	else
+		__dotfiles_agent_audit_start_us="$(__dotfiles_agent_audit_now_us)"
+		trap '__dotfiles_agent_audit_on_exit' EXIT
+		dotfiles_dbg "Agent audit: EXIT-trap recorder armed for bash -c invocation"
+	fi
+elif [[ $- == *i* ]]; then
+	__dotfiles_agent_audit_last_histcmd="${HISTCMD:-}"
+	PROMPT_COMMAND="__dotfiles_agent_audit_prompt${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
+	dotfiles_dbg "Agent audit: PROMPT_COMMAND recorder installed"
+else
+	dotfiles_dbg "Agent audit: non-interactive shell without -c string; not recorded"
+fi
+
+unset -f __dotfiles_agent_audit_enabled

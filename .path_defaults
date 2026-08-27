@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+[[ $DOTFILES_DEBUG == "true" ]] && echo "[DOTFILE_DBG: Executing .PATH_DEFAULTS]"
+
+# Well-known per-user tool directories. Installers (claude, codex, cursor-agent,
+# pipx/uv, cargo, go, bun, deno, pnpm, volta, ...) try to add these by appending
+# `export PATH=...` lines to ~/.bashrc. They are prepended here instead, only
+# when the directory exists and is not already in PATH, so the tools resolve in
+# every load path (full, safe, agent) and on fresh machines.
+#
+# Private or machine-specific entries belong in ~/.path, which is sourced right
+# after this file and therefore wins. Installer appends at the end of ~/.bashrc
+# keep working too (see the local-additions tail in ~/.bashrc).
+
+function __dotfiles_path_prepend {
+	local dir="$1"
+	[ -n "$dir" ] && [ -d "$dir" ] || return 0
+	case ":$PATH:" in
+		*":$dir:"*) return 0 ;;
+	esac
+	PATH="$dir:$PATH"
+}
+
+__dotfiles_path_defaults=(
+	"$HOME/.local/bin"                  # claude, codex, cursor-agent, pipx, uv, poetry
+	"$HOME/bin"
+	"$HOME/.claude/local"               # legacy npm "local" Claude Code install
+	"$HOME/.opencode/bin"               # OpenCode installer
+	"$HOME/.cargo/bin"                  # rustup / cargo install
+	"${GOPATH:-$HOME/go}/bin"           # go install
+	"$HOME/.bun/bin"
+	"$HOME/.deno/bin"
+	"$HOME/.volta/bin"
+	"$HOME/.npm-global/bin"             # npm prefix ~/.npm-global (codex, gemini-cli via npm -g)
+	"$HOME/.yarn/bin"
+	"$HOME/.local/share/pnpm"           # PNPM_HOME
+	"$HOME/.dotnet/tools"
+	"$HOME/.krew/bin"
+	"$HOME/.ghcup/bin"
+	"$HOME/.fly/bin"
+	"$HOME/.pulumi/bin"
+	"/home/linuxbrew/.linuxbrew/sbin"
+	"/home/linuxbrew/.linuxbrew/bin"
+	"/snap/bin"
+)
+
+# Walk the list backwards so the first entry ends up first in PATH.
+for (( __dotfiles_path_i=${#__dotfiles_path_defaults[@]} - 1; __dotfiles_path_i >= 0; __dotfiles_path_i-- )); do
+	__dotfiles_path_prepend "${__dotfiles_path_defaults[__dotfiles_path_i]}"
+done
+export PATH
+
+# pnpm refuses global installs unless PNPM_HOME is set.
+if [ -z "${PNPM_HOME:-}" ] && [ -d "$HOME/.local/share/pnpm" ]; then
+	export PNPM_HOME="$HOME/.local/share/pnpm"
+fi
+
+[[ "$DOTFILES_DEBUG" == "true" ]] && echo "[DOTFILE_DBG: .PATH_DEFAULTS resolved PATH=$PATH]"
+
+unset __dotfiles_path_defaults __dotfiles_path_i
+unset -f __dotfiles_path_prepend

@@ -10,6 +10,14 @@ fi
 dotfiles_dbg "--- S T A R T ---"
 dotfiles_dbg "Executing .BASH_PROFILE"
 
+# Re-entrancy guard: an old-style ~/.bashrc sourcing this file from inside the
+# local-additions pass below would otherwise recurse forever.
+if [ -n "${__dotfiles_profile_loading:-}" ]; then
+	dotfiles_dbg "Already loading .BASH_PROFILE; skipping nested load"
+	return 0 2> /dev/null || exit 0
+fi
+__dotfiles_profile_loading=1
+
 # Agent / non-interactive guard: decides DOTFILES_AGENT_MODE_ACTIVE before
 # anything else is loaded. See ~/.dotfiles_agent_guard for the knobs.
 DOTFILES_AGENT_MODE_ACTIVE='false'
@@ -30,7 +38,7 @@ if [[ "$DOTFILES_AGENT_MODE_ACTIVE" == "true" ]]; then
 	# settings only. Skips: prompt, features, functions, aliases, completions,
 	# PROMPT_COMMAND/DEBUG/PS0 hooks, terminal title, update checks, `set -b`
 	# and all shopt tweaks (nocaseglob, autocd, cdspell, ...).
-	for file in ~/.{path,exports,extra,systemspecific}; do
+	for file in ~/.{path_defaults,path,exports,extra,systemspecific}; do
 		if [ -r "$file" ] && [ -f "$file" ]; then
 			dotfiles_dbg "Sourcing $file"
 			source "$file"
@@ -51,6 +59,12 @@ if [[ "$DOTFILES_AGENT_MODE_ACTIVE" == "true" ]]; then
 	fi
 	export CLICOLOR=0
 	dotfiles_dbg "Agent-friendly env applied: PAGER=$PAGER GIT_PAGER=$GIT_PAGER MANPAGER=$MANPAGER CLICOLOR=$CLICOLOR"
+
+	# Separate audit trail for agent commands (~/.bash_history_audit_agent).
+	if [ -r ~/.dotfiles_agent_audit ] && [ -f ~/.dotfiles_agent_audit ]; then
+		dotfiles_dbg "Sourcing ~/.dotfiles_agent_audit"
+		source ~/.dotfiles_agent_audit
+	fi
 
 	# Escape hatch for interactive agent shells: `reload` restarts as a full
 	# login shell with the guard disabled for that shell only.
@@ -74,7 +88,7 @@ elif [[ "$BASH_SAFE_MODE" == "true" ]]; then
 
 	# Safe mode: load only essential configuration (PATH, exports, basic shell options).
 	# Skips: prompt, functions, aliases, completions, PROMPT_COMMAND hooks.
-	for file in ~/.{path,exports}; do
+	for file in ~/.{path_defaults,path,exports}; do
 		if [ -r "$file" ] && [ -f "$file" ]; then
 			dotfiles_dbg "Sourcing $file"
 			source "$file"
@@ -126,7 +140,7 @@ else
 	# rather than before printing the next primary prompt.
 	set -b
 
-	for file in ~/.{path,dotfiles_features,bash_prompt,exports,functions,extra,systemspecific}; do
+	for file in ~/.{path_defaults,path,dotfiles_features,bash_prompt,exports,functions,extra,systemspecific}; do
 		if [ -r "$file" ] && [ -f "$file" ]; then
 			dotfiles_dbg "Sourcing $file"
 			source "$file";
@@ -406,3 +420,37 @@ unset alias_line alias_name alias_value git_alias_names;
 dotfiles_dbg "Full interactive load path completed"
 
 fi # end DOTFILES_AGENT_MODE_ACTIVE / BASH_SAFE_MODE check
+
+# Run the local-additions tail of ~/.bashrc (installer appends, nvm/conda init,
+# ...) in every load path. ~/.bashrc skips its own profile bootstrap while
+# __dotfiles_profile_loaded is set.
+if [ -r ~/.bashrc ] && [ -f ~/.bashrc ]; then
+	__dotfiles_profile_loaded=1
+	dotfiles_dbg "Sourcing ~/.bashrc for local additions"
+	source ~/.bashrc
+	unset __dotfiles_profile_loaded
+fi
+
+# Installer appends and ~/.exports may re-add directories; keep the first
+# occurrence of each PATH entry.
+function __dotfiles_dedupe_path {
+	local entry deduped=''
+	local IFS=':'
+	for entry in $PATH; do
+		[ -n "$entry" ] || continue
+		case ":$deduped:" in
+			*":$entry:"*) continue ;;
+		esac
+		deduped="${deduped:+$deduped:}$entry"
+	done
+	PATH="$deduped"
+	export PATH
+}
+__dotfiles_dedupe_path
+unset -f __dotfiles_dedupe_path
+
+unset __dotfiles_profile_loading
+dotfiles_dbg "--- E N D ---"
+
+# Everything below the marker is preserved by bootstrap.sh / dotfiles_update.
+# >>> dotfiles: local additions below this line survive bootstrap/update >>>
