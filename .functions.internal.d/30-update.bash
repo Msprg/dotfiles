@@ -46,6 +46,58 @@ function __dotfiles_update_target_branch {
 	printf '%s\n' "$branch"
 }
 
+function __dotfiles_read_install_metadata {
+	local metadata_file="${DOTFILES_INSTALL_METADATA_FILE:-${DOTFILES_CONFIG_DIR:-$HOME}/.dotfiles-install}"
+	local line key value
+
+	__dotfiles_install_scope="${DOTFILES_INSTALL_SCOPE:-user}"
+	__dotfiles_install_root="${DOTFILES_CONFIG_DIR:-$HOME}"
+	__dotfiles_install_profile_d_dir=''
+	__dotfiles_install_source_url=''
+	__dotfiles_install_source_branch='main'
+	__dotfiles_install_commit=''
+	__dotfiles_install_epoch='0'
+	__dotfiles_install_update_mode='remote'
+
+	[ -r "$metadata_file" ] && [ -f "$metadata_file" ] || return 1
+
+	while IFS= read -r line || [ -n "$line" ]; do
+		case "$line" in
+			*=*)
+				key="${line%%=*}"
+				value="${line#*=}"
+				;;
+			*) continue ;;
+		esac
+
+		case "$key" in
+			scope) __dotfiles_install_scope="$value" ;;
+			install_root) __dotfiles_install_root="$value" ;;
+			profile_d_dir) __dotfiles_install_profile_d_dir="$value" ;;
+			source_url) __dotfiles_install_source_url="$value" ;;
+			source_branch) __dotfiles_install_source_branch="$value" ;;
+			installed_commit) __dotfiles_install_commit="$value" ;;
+			installed_at) __dotfiles_install_epoch="$value" ;;
+			update_mode) __dotfiles_install_update_mode="$value" ;;
+		esac
+	done < "$metadata_file"
+
+	[ -n "$__dotfiles_install_commit" ] && [ "$__dotfiles_install_commit" != 'unknown' ]
+}
+
+function __dotfiles_current_installed_commit {
+	local repo_dir
+
+	if __dotfiles_read_install_metadata; then
+		printf '%s\n' "$__dotfiles_install_commit"
+		return 0
+	fi
+
+	repo_dir="$(dotfiles_resolve_repo_dir 2> /dev/null || true)"
+	[ -n "$repo_dir" ] || return 1
+	git -C "$repo_dir" rev-parse HEAD 2> /dev/null
+}
+
 function __dotfiles_read_update_state {
 	local state_file="${__dotfiles_update_state_file:-${XDG_CACHE_HOME:-$HOME/.cache}/dotfiles/update_state}"
 	local line key value
@@ -149,34 +201,54 @@ function __dotfiles_should_run_update_check_now {
 function __dotfiles_run_update_check_worker {
 	local state_dir="${__dotfiles_update_state_dir:-${XDG_CACHE_HOME:-$HOME/.cache}/dotfiles}"
 	local lock_dir="${__dotfiles_update_check_lock_dir:-$state_dir/update_check.lock}"
-	local repo_dir branch local_commit remote_commit remote_url now_epoch
+	local repo_dir branch local_commit remote_commit remote_url now_epoch lock_epoch
 	local status error_message
 
 	now_epoch="$(date +%s)"
 	mkdir -p "$state_dir" || return 0
 	if ! mkdir "$lock_dir" 2> /dev/null; then
+		lock_epoch='0'
+		[ -r "$lock_dir/created_at" ] && IFS= read -r lock_epoch < "$lock_dir/created_at"
+		[[ "$lock_epoch" =~ ^[0-9]+$ ]] || lock_epoch=0
+		if [ $((now_epoch - lock_epoch)) -lt 900 ]; then
+			return 0
+		fi
+		rm -rf "$lock_dir" 2> /dev/null || return 0
+		mkdir "$lock_dir" 2> /dev/null || return 0
+	fi
+	printf '%s\n' "$now_epoch" > "$lock_dir/created_at" 2> /dev/null || true
+
+	if __dotfiles_read_install_metadata; then
+		local_commit="$__dotfiles_install_commit"
+		branch="${__dotfiles_install_source_branch:-main}"
+		remote_url="$__dotfiles_install_source_url"
+		if [ "${__dotfiles_install_update_mode:-remote}" != 'remote' ]; then
+			__dotfiles_write_update_state "manual" "$local_commit" "" "$now_epoch" "Installed from a modified working tree; automatic update notices are disabled."
+			rm -rf "$lock_dir" 2> /dev/null
+			return 0
+		fi
+	else
+		repo_dir="$(dotfiles_resolve_repo_dir 2> /dev/null || true)"
+		if [ -n "$repo_dir" ]; then
+			local_commit="$(git -C "$repo_dir" rev-parse HEAD 2> /dev/null || true)"
+			branch="$(__dotfiles_update_target_branch "$repo_dir")"
+			remote_url="$(git -C "$repo_dir" config --get remote.origin.url 2> /dev/null || true)"
+		fi
+	fi
+
+	if [ -z "${local_commit:-}" ] || [ -z "${remote_url:-}" ]; then
+		error_message="Could not resolve installed dotfiles version or update source."
+		__dotfiles_write_update_state "error" "${local_commit:-}" "" "$now_epoch" "$error_message"
+		rm -rf "$lock_dir" 2> /dev/null
 		return 0
 	fi
 
-	repo_dir="$(dotfiles_resolve_repo_dir 2> /dev/null || true)"
-	if [ -z "$repo_dir" ]; then
-		__dotfiles_write_update_state "error" "" "" "$now_epoch" "Could not resolve dotfiles repo directory."
-		rmdir "$lock_dir" 2> /dev/null
-		return 0
-	fi
-
-	local_commit="$(git -C "$repo_dir" rev-parse HEAD 2> /dev/null || true)"
-	branch="$(__dotfiles_update_target_branch "$repo_dir")"
-	remote_url="$(git -C "$repo_dir" config --get remote.origin.url 2> /dev/null || true)"
-	if [ -z "$remote_url" ]; then
-		remote_url='origin'
-	fi
-	remote_commit="$(git -C "$repo_dir" ls-remote --heads "$remote_url" "refs/heads/$branch" 2> /dev/null | awk 'NR==1 {print $1}')"
+	remote_commit="$(git ls-remote --heads "$remote_url" "refs/heads/$branch" 2> /dev/null | awk 'NR==1 {print $1}')"
 
 	if [ -z "$local_commit" ] || [ -z "$remote_commit" ]; then
 		error_message="Unable to read local/remote commit."
 		__dotfiles_write_update_state "error" "$local_commit" "$remote_commit" "$now_epoch" "$error_message"
-		rmdir "$lock_dir" 2> /dev/null
+		rm -rf "$lock_dir" 2> /dev/null
 		return 0
 	fi
 
@@ -186,7 +258,7 @@ function __dotfiles_run_update_check_worker {
 	fi
 
 	__dotfiles_write_update_state "$status" "$local_commit" "$remote_commit" "$now_epoch" ""
-	rmdir "$lock_dir" 2> /dev/null
+	rm -rf "$lock_dir" 2> /dev/null
 }
 
 function __dotfiles_schedule_update_check_async {
@@ -201,13 +273,23 @@ function __dotfiles_schedule_update_check_async {
 }
 
 function __dotfiles_maybe_show_update_notice_once {
-	local local_short remote_short
+	local local_short remote_short current_commit now_epoch
 
 	if [[ "${__dotfiles_update_notice_shown:-false}" == "true" ]]; then
 		return 0
 	fi
 	__dotfiles_should_auto_check_updates || return 0
 	__dotfiles_read_update_state
+	current_commit="$(__dotfiles_current_installed_commit 2> /dev/null || true)"
+	if [ -n "$current_commit" ] \
+		&& [ -n "${__dotfiles_update_state_local_commit:-}" ] \
+		&& [ "$current_commit" != "$__dotfiles_update_state_local_commit" ]; then
+		# The installed runtime changed since this per-user cache was written.
+		# Invalidate stale notices and let the async scheduler refresh the state.
+		now_epoch=0
+		__dotfiles_write_update_state "unknown" "$current_commit" "" "$now_epoch" "" 2> /dev/null || true
+		return 0
+	fi
 
 	if [ "${__dotfiles_update_state_status:-}" != "update_available" ]; then
 		return 0

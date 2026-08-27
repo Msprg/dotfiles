@@ -5,54 +5,70 @@ timing, per-directory history, and `.env` auto-loading.
 
 ## Installation
 
-Clone and install:
+Clone and install the shared runtime (Linux default):
 
 ```bash
 git clone https://github.com/msprg/dotfiles.git
 cd dotfiles
-source bootstrap.sh
+bash bootstrap.sh
 ```
 
-Update existing install:
+The default installation:
+
+- installs managed files under `/usr/local/share/dotfiles`;
+- installs `/etc/profile.d/dotfiles.sh` for all interactive Bash users;
+- uses the conservative `minimal` feature profile;
+- keeps `~/.path`, `~/.extra`, `~/.systemspecific`, and
+  `~/.dotfiles_features.local` as per-user overrides;
+- records the installed commit and update source in
+  `/usr/local/share/dotfiles/.dotfiles-install`.
+
+To migrate an existing per-user dotFiles installation, back it up and deactivate
+its shell entry points after installing the shared runtime:
 
 ```bash
-cd /path/to/dotfiles
-source bootstrap.sh
+bash bootstrap.sh --system --migrate-user
 ```
 
-Skip bootstrap confirmation:
+The backup is written to `~/.dotfiles-user-install-backup-<timestamp>`. User-local
+override files are preserved. Without `--migrate-user`, bootstrap warns when a
+legacy installation would continue to override the shared profile.
+
+The previous per-user installation mode remains available explicitly:
 
 ```bash
-set -- -f; source bootstrap.sh
+bash bootstrap.sh --user
 ```
 
-What `bootstrap.sh` does:
-- Runs `git pull origin main` from repo root.
-- Rsyncs dotfiles into `$HOME`.
-- Excludes `.git/`, `*.md`, `*.sh`, `*.disabled`, and a few other non-runtime files.
-- Ensures a Bash completion loader is installed (best effort).
+Use `--force` to skip confirmation. Bootstrap installs the checked-out files
+exactly as they are; it no longer runs `git pull` implicitly. Bash completion is
+installed on a best-effort basis.
 
 ## Shell Load Order
 
-Interactive shells enter via `.bashrc`, which sources `.bash_profile`.
+System installations enter through `/etc/profile.d/dotfiles.sh`, which sets
+`DOTFILES_CONFIG_DIR=/usr/local/share/dotfiles` and sources the shared
+`.bash_profile`. Per-user installations continue to enter through `~/.bashrc`.
 
 Full mode load order:
-`~/.path` -> `~/.dotfiles_features` -> `~/.bash_prompt` -> `~/.exports` -> `~/.functions` -> `~/.extra` -> `~/.systemspecific` -> `~/.aliases/bash/aliases`
+`~/.path` -> shared `.dotfiles_features` -> shared `.bash_prompt` -> shared
+`.exports` -> shared `.functions` -> `~/.extra` -> `~/.systemspecific` -> shared
+`.aliases/bash/aliases`
 
-Function file split:
-- `~/.functions` is a loader.
-- `~/.functions.internal.bash` loads ordered modules from `~/.functions.internal.d/`.
-- `~/.functions.external.bash` loads ordered modules from `~/.functions.external.d/`.
+Function file split below is relative to `$DOTFILES_CONFIG_DIR`:
+- `.functions` is a loader.
+- `.functions.internal.bash` loads ordered modules from `.functions.internal.d/`.
+- `.functions.external.bash` loads ordered modules from `.functions.external.d/`.
 
 Current module split:
-- `~/.functions.internal.d/`: shared helpers, history, `.env`, update checks, prompt hooks
-- `~/.functions.external.d/`: core helpers, dotfiles commands, filesystem tools, Git helpers, network/media helpers
+- `.functions.internal.d/`: shared helpers, history, `.env`, update checks, prompt hooks
+- `.functions.external.d/`: core helpers, dotfiles commands, filesystem tools, Git helpers, network/media helpers
 
 The manifests use an explicit source order. Every listed module is required, and
 a missing or invalid module aborts the full runtime load with an error on stderr.
 
-Safe mode (`BASH_SAFE_MODE=true`) loads only:
-`~/.path` and `~/.exports`
+Safe mode (`BASH_SAFE_MODE=true`) loads only the per-user `~/.path` and shared
+`.exports`.
 
 In safe mode, prompt/functions/aliases/completions/PROMPT_COMMAND hooks are skipped.
 
@@ -75,13 +91,17 @@ dotfiles_profile minimal
 dotfiles_profile reset
 ```
 
-Profile settings are resolved in `~/.dotfiles_features` plus optional overrides in
-`~/.dotfiles_features.local`.
+The shared `.dotfiles_features` provides defaults, then
+`~/.dotfiles_features.local` selects a profile or overrides individual features.
+`minimal` is the default. It disables prompt hooks, command timing, prompt
+metadata, automatic `.env` loading, per-directory history switching, terminal
+title changes, history timestamps, and automatic update polling.
 
 ## Dotfiles Self-Update
 
-- Update checks run asynchronously during shell startup (non-blocking) when
-  `DOTFILES_FEATURE_DOTFILES_UPDATE_CHECK=true`.
+- Automatic update checks are disabled by default, including for shared installs.
+- When explicitly enabled with `DOTFILES_FEATURE_DOTFILES_UPDATE_CHECK=true`,
+  checks run asynchronously during interactive shell startup.
 - Default check scope is all interactive shells (`DOTFILES_FEATURE_DOTFILES_UPDATE_CHECK_SCOPE=interactive`).
   Set it to `ssh` to check only in SSH sessions.
 - Default throttle interval is 12 hours
@@ -89,17 +109,19 @@ Profile settings are resolved in `~/.dotfiles_features` plus optional overrides 
 - When an update is detected, one message is shown per shell session:
   `Dotfiles update available: <local> -> <remote>. Run: dotfiles_update`
 
-Repo resolution order for checks/updates:
-1. `DOTFILES_REPO_DIR` (if set and valid)
-2. `~/.dotfiles_repo_dir` (written by bootstrap by default)
-3. `~/dotFiles`
-4. `~/dotfiles`
+Update checks use `.dotfiles-install` metadata and compare the installed commit
+with the configured remote branch. Installations made from a modified working
+tree are marked `manual`, so they do not produce misleading update notices.
+For safety, `dotfiles_update` will not replace such an installation unless
+`dotfiles_update --remote` is requested explicitly.
 
 `dotfiles_update` behavior:
-- Uses writable local repo when available.
-- If repo is missing or not writable, uses a temporary clone to install updates.
-- Aborts if writable local repo has uncommitted changes.
-- Calls bootstrap in non-interactive mode and then reloads the shell.
+- clones the configured remote branch into a temporary workspace;
+- reinstalls that exact commit using the recorded `system` or `user` scope;
+- updates the calling user's cache immediately and reloads the shell;
+- requires sudo for shared installations;
+- expires abandoned update locks after 15 minutes and invalidates stale per-user
+  notices when the centrally installed commit changes.
 
 ## Feature Highlights
 

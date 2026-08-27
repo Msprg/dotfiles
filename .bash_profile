@@ -7,6 +7,8 @@ if ! declare -F dotfiles_dbg > /dev/null; then
 	}
 fi
 
+_dotfiles_config_dir="${DOTFILES_CONFIG_DIR:-$HOME}"
+
 dotfiles_dbg "--- S T A R T ---"
 dotfiles_dbg "Executing .BASH_PROFILE"
 
@@ -22,7 +24,11 @@ if [[ "$BASH_SAFE_MODE" == "true" ]]; then
 	dotfiles_dbg "BASH_SAFE_MODE=true; entering safe mode load path"
 	# Safe mode: load only essential configuration (PATH, exports, basic shell options).
 	# Skips: prompt, functions, aliases, completions, PROMPT_COMMAND hooks.
-	for file in ~/.{path,exports}; do
+	_dotfiles_safe_files=(
+		"$HOME/.path"
+		"$_dotfiles_config_dir/.exports"
+	)
+	for file in "${_dotfiles_safe_files[@]}"; do
 		if [ -r "$file" ] && [ -f "$file" ]; then
 			dotfiles_dbg "Sourcing $file"
 			source "$file"
@@ -30,7 +36,7 @@ if [[ "$BASH_SAFE_MODE" == "true" ]]; then
 			dotfiles_dbg "Skipping missing/unreadable $file"
 		fi
 	done
-	unset file
+	unset file _dotfiles_safe_files
 
 	# Basic shell options
 	shopt -s histappend checkwinsize
@@ -66,22 +72,31 @@ if [[ "$BASH_SAFE_MODE" == "true" ]]; then
 else
 	dotfiles_dbg "BASH_SAFE_MODE=false; entering full load path"
 
-	for file in ~/.{path,dotfiles_features,bash_prompt,exports,functions,extra,systemspecific}; do
+	_dotfiles_profile_files=(
+		"$HOME/.path"
+		"$_dotfiles_config_dir/.dotfiles_features"
+		"$_dotfiles_config_dir/.bash_prompt"
+		"$_dotfiles_config_dir/.exports"
+		"$_dotfiles_config_dir/.functions"
+		"$HOME/.extra"
+		"$HOME/.systemspecific"
+	)
+	for file in "${_dotfiles_profile_files[@]}"; do
 		if [ -r "$file" ] && [ -f "$file" ]; then
 			dotfiles_dbg "Sourcing $file"
-			if [ "$file" = "$HOME/.functions" ]; then
+			if [ "$file" = "$_dotfiles_config_dir/.functions" ]; then
 				if ! source "$file"; then
 					printf 'dotfiles: failed to source configuration file: %s\n' "$file" >&2
-					unset file
+					unset file _dotfiles_profile_files _dotfiles_config_dir
 					return 1
 				fi
 			else
 				source "$file"
 			fi
 		else
-			if [ "$file" = "$HOME/.functions" ]; then
+			if [ "$file" = "$_dotfiles_config_dir/.functions" ]; then
 				printf 'dotfiles: required configuration file is missing or unreadable: %s\n' "$file" >&2
-				unset file
+				unset file _dotfiles_profile_files _dotfiles_config_dir
 				return 1
 			fi
 			dotfiles_dbg "Skipping missing/unreadable $file"
@@ -95,13 +110,13 @@ else
 		dotfiles_dbg "DOTFILES_FEATURE_SET_TERMINAL_TITLE=false; leaving terminal title unchanged"
 	fi
 
-	if [ -r "$HOME/.aliases/bash/aliases" ] && [ -f "$HOME/.aliases/bash/aliases" ]; then
-		dotfiles_dbg "Sourcing $HOME/.aliases/bash/aliases"
-		source "$HOME/.aliases/bash/aliases";
+	if [ -r "$_dotfiles_config_dir/.aliases/bash/aliases" ] && [ -f "$_dotfiles_config_dir/.aliases/bash/aliases" ]; then
+		dotfiles_dbg "Sourcing $_dotfiles_config_dir/.aliases/bash/aliases"
+		source "$_dotfiles_config_dir/.aliases/bash/aliases";
 	else
-		dotfiles_dbg "Skipping missing/unreadable $HOME/.aliases/bash/aliases"
+		dotfiles_dbg "Skipping missing/unreadable $_dotfiles_config_dir/.aliases/bash/aliases"
 	fi
-	unset file;
+	unset file _dotfiles_profile_files;
 
 	dotfiles_dbg "Feature summary: profile=${DOTFILES_FEATURE_PROFILE:-unset}, custom_prompt=${DOTFILES_FEATURE_CUSTOM_PROMPT:-unset}, prompt_hooks=${DOTFILES_FEATURE_PROMPT_HOOKS:-unset}, metadata_mode=${DOTFILES_FEATURE_PROMPT_METADATA_MODE:-unset}, track_method=${DOTFILES_FEATURE_TRACK_COMMAND_DURATION_METHOD:-unset}"
 
@@ -361,3 +376,5 @@ fi
 	dotfiles_dbg "Full interactive load path completed" || true
 
 fi # end BASH_SAFE_MODE check
+
+unset _dotfiles_config_dir

@@ -9,7 +9,7 @@ function dotfiles_profile {
 	case "$requested_profile" in
 		''|show|current)
 			dotfiles_dbg "dotfiles_profile show requested"
-			echo "Session profile: ${DOTFILES_FEATURE_PROFILE:-full}"
+			echo "Session profile: ${DOTFILES_FEATURE_PROFILE:-minimal}"
 			if [ -f "$local_features_file" ]; then
 				if grep -qE '^[[:space:]]*DOTFILES_FEATURE_PROFILE=' "$local_features_file"; then
 					echo "Local override ($(basename "$local_features_file")):"
@@ -77,79 +77,87 @@ EOF
 }
 
 function dotfiles_update {
+	local allow_remote_replace='false'
 	local canonical_repo_url="https://github.com/Msprg/dotFiles.git"
-	local repo_dir workspace_dir clone_url target_branch bootstrap_script
-	local use_temp_workspace='false'
-	local temp_dir=''
-	local persist_repo_dir='true'
+	local clone_url="$canonical_repo_url"
+	local target_branch='main'
+	local install_scope="${DOTFILES_INSTALL_SCOPE:-user}"
+	local install_root="${DOTFILES_CONFIG_DIR:-$HOME}"
+	local profile_d_dir="${DOTFILES_SYSTEM_PROFILE_D_DIR:-/etc/profile.d}"
+	local temp_dir workspace_dir bootstrap_script synced_commit
+	local bootstrap_args=(--force)
 
-	repo_dir="$(dotfiles_resolve_repo_dir 2> /dev/null || true)"
-
-	if [ -n "$repo_dir" ]; then
-		clone_url="$(git -C "$repo_dir" config --get remote.origin.url 2> /dev/null || true)"
-		target_branch="$(__dotfiles_update_target_branch "$repo_dir" 2> /dev/null || printf '%s\n' 'main')"
-	else
-		clone_url="$canonical_repo_url"
-		target_branch='main'
-	fi
-	[ -n "$clone_url" ] || clone_url="$canonical_repo_url"
-
-	if [ -n "$repo_dir" ] && [ -w "$repo_dir" ] && [ -w "$repo_dir/.git" ]; then
-		workspace_dir="$repo_dir"
-	else
-		use_temp_workspace='true'
-		persist_repo_dir='false'
-		temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/dotfiles-update.XXXXXX")" || {
-			echo "dotfiles_update: could not create temp workspace" >&2
+	case "${1:-}" in
+		'') ;;
+		--remote) allow_remote_replace='true' ;;
+		*)
+			echo "Usage: dotfiles_update [--remote]" >&2
 			return 1
-		}
-		workspace_dir="$temp_dir/dotFiles"
+			;;
+	esac
 
-		echo "Using temporary workspace for update: $workspace_dir"
-		if ! git clone --depth 1 --branch "$target_branch" "$clone_url" "$workspace_dir"; then
-			rm -rf "$temp_dir"
-			echo "dotfiles_update: clone failed from $clone_url (branch: $target_branch)" >&2
+	if declare -F __dotfiles_read_install_metadata > /dev/null \
+		&& __dotfiles_read_install_metadata; then
+		install_scope="${__dotfiles_install_scope:-$install_scope}"
+		install_root="${__dotfiles_install_root:-$install_root}"
+		profile_d_dir="${__dotfiles_install_profile_d_dir:-$profile_d_dir}"
+		clone_url="${__dotfiles_install_source_url:-$canonical_repo_url}"
+		target_branch="${__dotfiles_install_source_branch:-main}"
+		if [ "${__dotfiles_install_update_mode:-remote}" != 'remote' ] \
+			&& [ "$allow_remote_replace" != 'true' ]; then
+			printf '%s\n' \
+				'dotfiles_update: this installation came from a modified or non-tracking checkout.' \
+				'Reinstall from a clean tracked commit, or run dotfiles_update --remote to explicitly replace it with the configured remote branch.' >&2
 			return 1
 		fi
 	fi
 
-	if [[ "$use_temp_workspace" != "true" ]]; then
-		if [ -n "$(git -C "$workspace_dir" status --porcelain 2> /dev/null)" ]; then
-			echo "dotfiles_update: local changes detected in $workspace_dir"
-			echo "Commit or stash changes, then run dotfiles_update again."
+	case "$install_scope" in
+		system) bootstrap_args+=(--system) ;;
+		user) bootstrap_args+=(--user) ;;
+		*)
+			echo "dotfiles_update: unsupported installation scope '$install_scope'" >&2
 			return 1
-		fi
+			;;
+	esac
+
+	temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/dotfiles-update.XXXXXX")" || {
+		echo "dotfiles_update: could not create temp workspace" >&2
+		return 1
+	}
+	workspace_dir="$temp_dir/dotFiles"
+
+	echo "Fetching dotfiles update from $clone_url (branch: $target_branch) ..."
+	if ! git clone --quiet --depth 1 --branch "$target_branch" "$clone_url" "$workspace_dir"; then
+		rm -rf "$temp_dir"
+		echo "dotfiles_update: clone failed from $clone_url (branch: $target_branch)" >&2
+		return 1
 	fi
 
 	bootstrap_script="$workspace_dir/bootstrap.sh"
 	if [ ! -r "$bootstrap_script" ]; then
-		[ -n "$temp_dir" ] && rm -rf "$temp_dir"
+		rm -rf "$temp_dir"
 		echo "dotfiles_update: bootstrap script not found at $bootstrap_script" >&2
 		return 1
 	fi
 
-	echo "Updating dotfiles from $workspace_dir ..."
 	if ! DOTFILES_BOOTSTRAP_NO_SOURCE_PROFILE='true' \
-		DOTFILES_BOOTSTRAP_PERSIST_REPO_DIR="$persist_repo_dir" \
-		bash -c 'bootstrap_script="$1"; set -- -f; source "$bootstrap_script"' _ "$bootstrap_script"; then
-		[ -n "$temp_dir" ] && rm -rf "$temp_dir"
-		echo "dotfiles_update: bootstrap update failed" >&2
+		DOTFILES_BOOTSTRAP_SKIP_COMPLETION='true' \
+		DOTFILES_SYSTEM_INSTALL_ROOT="$install_root" \
+		DOTFILES_SYSTEM_PROFILE_D_DIR="$profile_d_dir" \
+		bash "$bootstrap_script" "${bootstrap_args[@]}"; then
+		rm -rf "$temp_dir"
+		echo "dotfiles_update: installation failed" >&2
 		return 1
 	fi
 
-	# Refresh update-check cache so the next shell prompt starts from fresh state.
-	if [[ "$use_temp_workspace" == "true" ]]; then
-		if declare -F __dotfiles_write_update_state > /dev/null; then
-			local synced_commit
-			synced_commit="$(git -C "$workspace_dir" rev-parse HEAD 2> /dev/null || true)"
-			__dotfiles_write_update_state "up_to_date" "$synced_commit" "$synced_commit" "$(date +%s)" ""
-		fi
-	else
-		__dotfiles_run_update_check_worker > /dev/null 2>&1 || true
-	fi
+	synced_commit="$(git -C "$workspace_dir" rev-parse HEAD 2> /dev/null || true)"
+	rm -rf "$temp_dir"
 
-	if [ -n "$temp_dir" ]; then
-		rm -rf "$temp_dir"
+	# Refresh this user's cache immediately. Other users invalidate stale cache
+	# entries when their next shell observes the new installed commit.
+	if [ -n "$synced_commit" ] && declare -F __dotfiles_write_update_state > /dev/null; then
+		__dotfiles_write_update_state "up_to_date" "$synced_commit" "$synced_commit" "$(date +%s)" ""
 	fi
 
 	echo "Dotfiles updated. Reloading shell..."

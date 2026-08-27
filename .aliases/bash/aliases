@@ -64,7 +64,7 @@ alias xt='extract'
 # Add an "alert" alias for long running commands.  Use like so:
 #   sleep 10; alert
 alias alert='notify-send --urgency=low -i "$([ $? = 0 ] && echo terminal || echo error)" "$(history|tail -n1|sed -e '\''s/^\s*[0-9]\+\s*//;s/[;&|]\s*alert$//'\'')"'
-# `catt`, `ports`, and reload helpers are defined in ~/.functions.external.bash.
+# `catt`, `ports`, and reload helpers are loaded by the shared function runtime.
 
 # Get week number
 alias week='date +%V'
@@ -121,12 +121,18 @@ alias map="xargs -n1"
 alias path='echo -e ${PATH//:/\\n}'
 
 
-source "$HOME/.aliases/bash/fuck.aliases.bash"
-# source "$HOME/.aliases/bash/clipboard.aliases.bash"
-source "$HOME/.aliases/bash/git.aliases.bash"
-source "$HOME/.aliases/bash/systemd.aliases.bash"
-source "$HOME/.aliases/bash/curl.aliases.bash"
-source "$HOME/.aliases/bash/docker.aliases.bash"
-source "$HOME/.aliases/bash/docker_compose.aliases.bash"
-#source "$HOME/.aliases/bash/dnf.aliases.bash"
-#source "$HOME/.aliases/bash/apt.aliases.bash"
+_dotfiles_aliases_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+for _dotfiles_alias_file in \
+	"$_dotfiles_aliases_dir/fuck.aliases.bash" \
+	"$_dotfiles_aliases_dir/git.aliases.bash" \
+	"$_dotfiles_aliases_dir/systemd.aliases.bash" \
+	"$_dotfiles_aliases_dir/curl.aliases.bash" \
+	"$_dotfiles_aliases_dir/docker.aliases.bash" \
+	"$_dotfiles_aliases_dir/docker_compose.aliases.bash"; do
+	if [ -r "$_dotfiles_alias_file" ] && [ -f "$_dotfiles_alias_file" ]; then
+		source "$_dotfiles_alias_file"
+	else
+		printf 'dotfiles: alias module is missing or unreadable: %s\n' "$_dotfiles_alias_file" >&2
+	fi
+done
+unset _dotfiles_alias_file _dotfiles_aliases_dir
