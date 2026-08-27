@@ -10,33 +10,42 @@ fi
 dotfiles_dbg "--- S T A R T ---"
 dotfiles_dbg "Executing .BASH_PROFILE"
 
+# All non-standard dotfiles live here (default ~/.config/dotfiles); only the
+# rc files, ~/.systemspecific and ~/.extra stay directly in $HOME.
+DOTFILES_HOME="${DOTFILES_HOME:-${XDG_CONFIG_HOME:-$HOME/.config}/dotfiles}"
+export DOTFILES_HOME
+
 # Agent / non-interactive guard: decides DOTFILES_AGENT_MODE_ACTIVE before
-# anything else is loaded. See ~/.dotfiles_agent_guard for the knobs.
+# anything else is loaded. See $DOTFILES_HOME/agent_guard for the knobs.
 DOTFILES_AGENT_MODE_ACTIVE='false'
-if [ -r ~/.dotfiles_agent_guard ] && [ -f ~/.dotfiles_agent_guard ]; then
-	dotfiles_dbg "Sourcing ~/.dotfiles_agent_guard"
-	source ~/.dotfiles_agent_guard
+if [ -r "$DOTFILES_HOME/agent_guard" ] && [ -f "$DOTFILES_HOME/agent_guard" ]; then
+	dotfiles_dbg "Sourcing $DOTFILES_HOME/agent_guard"
+	source "$DOTFILES_HOME/agent_guard"
 else
-	dotfiles_dbg "Skipping missing/unreadable ~/.dotfiles_agent_guard"
+	dotfiles_dbg "Skipping missing/unreadable $DOTFILES_HOME/agent_guard"
 fi
 
 # Move installer appends found below the local-additions markers of ~/.bashrc
-# and ~/.bash_profile into ~/.systemspecific before it gets sourced below.
-if [ -r ~/.dotfiles_local_additions ] && [ -f ~/.dotfiles_local_additions ]; then
-	dotfiles_dbg "Sourcing ~/.dotfiles_local_additions"
-	source ~/.dotfiles_local_additions
+# and ~/.bash_profile (and a legacy ~/.path) into ~/.systemspecific before it
+# gets sourced below.
+if [ -r "$DOTFILES_HOME/local_additions" ] && [ -f "$DOTFILES_HOME/local_additions" ]; then
+	dotfiles_dbg "Sourcing $DOTFILES_HOME/local_additions"
+	source "$DOTFILES_HOME/local_additions"
 	dotfiles_migrate_local_additions
 	unset -f dotfiles_migrate_local_additions __dotfiles_local_additions_anchor \
-		__dotfiles_local_additions_has_tail __dotfiles_local_additions_move \
-		__dotfiles_local_additions_move_locked
+		__dotfiles_local_additions_has_tail __dotfiles_local_additions_with_lock \
+		__dotfiles_local_additions_append_paragraphs __dotfiles_local_additions_move_locked \
+		__dotfiles_local_additions_absorb_locked
 	unset DOTFILES_LOCAL_ADDITIONS_MARKER
 else
-	dotfiles_dbg "Skipping missing/unreadable ~/.dotfiles_local_additions"
+	dotfiles_dbg "Skipping missing/unreadable $DOTFILES_HOME/local_additions"
 fi
 
-# Load the shell dotfiles, and then some:
-# * ~/.path can be used to extend `$PATH`.
-# * ~/.extra can be used for other settings you don’t want to commit.
+# Load the shell dotfiles, and then some. Two private files stay in $HOME:
+# * ~/.systemspecific: machine-specific settings (PATH additions, installer
+#   init lines moved there automatically); loaded early, in every mode.
+# * ~/.extra: other settings you don’t want to commit; loaded late so it can
+#   override anything (full and agent mode).
 if [[ "$DOTFILES_AGENT_MODE_ACTIVE" == "true" ]]; then
 	dotfiles_dbg "Agent guard active (DOTFILES_AGENT=${DOTFILES_AGENT}); entering agent load path"
 	# Agent mode: a near-vanilla Bash for coding agents / harnesses and
@@ -44,7 +53,7 @@ if [[ "$DOTFILES_AGENT_MODE_ACTIVE" == "true" ]]; then
 	# settings only. Skips: prompt, features, functions, aliases, completions,
 	# PROMPT_COMMAND/DEBUG/PS0 hooks, terminal title, update checks, `set -b`
 	# and all shopt tweaks (nocaseglob, autocd, cdspell, ...).
-	for file in ~/.{path_defaults,path,exports,extra,systemspecific}; do
+	for file in "$DOTFILES_HOME/path_defaults" ~/.systemspecific "$DOTFILES_HOME/exports" ~/.extra; do
 		if [ -r "$file" ] && [ -f "$file" ]; then
 			dotfiles_dbg "Sourcing $file"
 			source "$file"
@@ -60,16 +69,16 @@ if [[ "$DOTFILES_AGENT_MODE_ACTIVE" == "true" ]]; then
 	export GIT_PAGER="${GIT_PAGER:-cat}"
 	export MANPAGER="${MANPAGER:-cat}"
 	if [ "$MANPAGER" = 'less -X' ]; then
-		# ~/.exports sets this unconditionally; a pager still blocks an agent.
+		# exports sets this unconditionally; a pager still blocks an agent.
 		export MANPAGER='cat'
 	fi
 	export CLICOLOR=0
 	dotfiles_dbg "Agent-friendly env applied: PAGER=$PAGER GIT_PAGER=$GIT_PAGER MANPAGER=$MANPAGER CLICOLOR=$CLICOLOR"
 
 	# Separate audit trail for agent commands (~/.bash_history_audit_agent).
-	if [ -r ~/.dotfiles_agent_audit ] && [ -f ~/.dotfiles_agent_audit ]; then
-		dotfiles_dbg "Sourcing ~/.dotfiles_agent_audit"
-		source ~/.dotfiles_agent_audit
+	if [ -r "$DOTFILES_HOME/agent_audit" ] && [ -f "$DOTFILES_HOME/agent_audit" ]; then
+		dotfiles_dbg "Sourcing $DOTFILES_HOME/agent_audit"
+		source "$DOTFILES_HOME/agent_audit"
 	fi
 
 	# Escape hatch for interactive agent shells: `reload` restarts as a full
@@ -94,7 +103,7 @@ elif [[ "$BASH_SAFE_MODE" == "true" ]]; then
 
 	# Safe mode: load only essential configuration (PATH, exports, basic shell options).
 	# Skips: prompt, functions, aliases, completions, PROMPT_COMMAND hooks.
-	for file in ~/.{path_defaults,path,exports}; do
+	for file in "$DOTFILES_HOME/path_defaults" ~/.systemspecific "$DOTFILES_HOME/exports"; do
 		if [ -r "$file" ] && [ -f "$file" ]; then
 			dotfiles_dbg "Sourcing $file"
 			source "$file"
@@ -146,7 +155,7 @@ else
 	# rather than before printing the next primary prompt.
 	set -b
 
-	for file in ~/.{path_defaults,path,dotfiles_features,bash_prompt,exports,functions,extra,systemspecific}; do
+	for file in "$DOTFILES_HOME/path_defaults" ~/.systemspecific "$DOTFILES_HOME/features" "$DOTFILES_HOME/prompt" "$DOTFILES_HOME/exports" "$DOTFILES_HOME/functions" ~/.extra; do
 		if [ -r "$file" ] && [ -f "$file" ]; then
 			dotfiles_dbg "Sourcing $file"
 			source "$file";
@@ -162,11 +171,11 @@ else
 		dotfiles_dbg "DOTFILES_FEATURE_SET_TERMINAL_TITLE=false; leaving terminal title unchanged"
 	fi
 
-	if [ -r "$HOME/.aliases/bash/aliases" ] && [ -f "$HOME/.aliases/bash/aliases" ]; then
-		dotfiles_dbg "Sourcing $HOME/.aliases/bash/aliases"
-		source "$HOME/.aliases/bash/aliases";
+	if [ -r "$DOTFILES_HOME/aliases/bash/aliases" ] && [ -f "$DOTFILES_HOME/aliases/bash/aliases" ]; then
+		dotfiles_dbg "Sourcing $DOTFILES_HOME/aliases/bash/aliases"
+		source "$DOTFILES_HOME/aliases/bash/aliases";
 	else
-		dotfiles_dbg "Skipping missing/unreadable $HOME/.aliases/bash/aliases"
+		dotfiles_dbg "Skipping missing/unreadable $DOTFILES_HOME/aliases/bash/aliases"
 	fi
 	unset file;
 
@@ -427,7 +436,7 @@ dotfiles_dbg "Full interactive load path completed"
 
 fi # end DOTFILES_AGENT_MODE_ACTIVE / BASH_SAFE_MODE check
 
-# ~/.systemspecific (installer appends) and ~/.exports may re-add directories;
+# ~/.systemspecific (installer appends) and exports may re-add directories;
 # keep the first occurrence of each PATH entry.
 function __dotfiles_dedupe_path {
 	local entry deduped=''
@@ -447,6 +456,6 @@ unset -f __dotfiles_dedupe_path
 
 dotfiles_dbg "--- E N D ---"
 
-# Installers append below this marker; ~/.dotfiles_local_additions moves such
-# lines into ~/.systemspecific at the next shell start. Do not edit above.
+# Installers append below this marker; $DOTFILES_HOME/local_additions moves
+# such lines into ~/.systemspecific at the next shell start. Do not edit above.
 # >>> dotfiles: local additions below this line survive bootstrap/update >>>

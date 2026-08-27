@@ -18,7 +18,8 @@
 #      DOTFILES_AGENT_GUARD_NONINTERACTIVE=true (default)
 #                                      -> agent mode, DOTFILES_AGENT=non-interactive
 #
-# Knobs (set in the environment or in ~/.dotfiles_agent_guard.local):
+# Knobs (set in the environment or in $DOTFILES_HOME/agent_guard.local,
+# default ~/.config/dotfiles/agent_guard.local):
 #   DOTFILES_AGENT_GUARD=true|false            enable/disable the guard (default true)
 #   DOTFILES_AGENT_MODE=true                   force agent mode for this shell
 #   DOTFILES_AGENT_GUARD_NONINTERACTIVE=true|false
@@ -46,7 +47,7 @@ fi
 DOTFILES_AGENT_MODE_ACTIVE='false'
 unset DOTFILES_AGENT
 
-__dotfiles_agent_guard_local="$HOME/.dotfiles_agent_guard.local"
+__dotfiles_agent_guard_local="${DOTFILES_HOME:-${XDG_CONFIG_HOME:-$HOME/.config}/dotfiles}"/agent_guard.local
 if [ -r "$__dotfiles_agent_guard_local" ] && [ -f "$__dotfiles_agent_guard_local" ]; then
 	dotfiles_dbg "Sourcing agent guard overrides from $__dotfiles_agent_guard_local"
 	source "$__dotfiles_agent_guard_local"

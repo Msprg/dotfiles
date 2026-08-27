@@ -1,5 +1,5 @@
-# Local overrides for the agent / non-interactive guard (~/.dotfiles_agent_guard).
-# Copy to ~/.dotfiles_agent_guard.local and uncomment what you need.
+# Local overrides for the agent / non-interactive guard ($DOTFILES_HOME/agent_guard).
+# Copy to ~/.config/dotfiles/agent_guard.local and uncomment what you need.
 
 # Disable the guard completely (every shell gets the full dotfiles):
 # DOTFILES_AGENT_GUARD=false
@@ -15,7 +15,7 @@
 # agent terminals you also type into yourself:
 # DOTFILES_AGENT_GUARD_ALLOW_FULL='cursor cline vscode-copilot'
 
-# Agent command audit (~/.bash_history_audit_agent), see ~/.dotfiles_agent_audit:
+# Agent command audit (~/.bash_history_audit_agent), see $DOTFILES_HOME/agent_audit:
 # DOTFILES_AGENT_AUDIT=false
 # DOTFILES_AGENT_AUDIT_FILE="$HOME/.bash_history_audit_agent"
 # DOTFILES_AGENT_AUDIT_MAX_CHARS=4000

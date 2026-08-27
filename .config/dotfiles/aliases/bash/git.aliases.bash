@@ -3,7 +3,7 @@
 
 alias g='git'
 alias get='git'
-# `gdv` and `get_default_branch` are defined in ~/.functions.external.bash.
+# `gdv` and `get_default_branch` are defined in functions.external.bash.
 
 # add
 alias ga='git add'

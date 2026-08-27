@@ -1,4 +1,5 @@
-# Local dotfiles feature overrides.
+# Local dotfiles feature overrides: copy to ~/.config/dotfiles/features.local
+# (or $DOTFILES_HOME/features.local).
 # Uncomment one profile line:
 DOTFILES_FEATURE_PROFILE=full
 # DOTFILES_FEATURE_PROFILE=light

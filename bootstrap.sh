@@ -2,6 +2,7 @@
 
 cd "$(dirname "${BASH_SOURCE}")";
 DOTFILES_BOOTSTRAP_SOURCE_DIR="$(pwd -P)";
+DOTFILES_HOME="${DOTFILES_HOME:-${XDG_CONFIG_HOME:-$HOME/.config}/dotfiles}";
 
 dotfiles_bootstrap_branch='main';
 dotfiles_origin_head_ref="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2> /dev/null || true)";
@@ -115,7 +116,7 @@ function ensure_bash_completion() {
 
 function persist_dotfiles_repo_dir() {
 	local persist_enabled="${DOTFILES_BOOTSTRAP_PERSIST_REPO_DIR:-true}";
-	local marker_file="$HOME/.dotfiles_repo_dir";
+	local marker_file="$DOTFILES_HOME/repo_dir";
 	local marker_value="${DOTFILES_BOOTSTRAP_REPO_DIR_VALUE:-$DOTFILES_BOOTSTRAP_SOURCE_DIR}";
 
 	if ! _is_true "$persist_enabled"; then
@@ -126,24 +127,82 @@ function persist_dotfiles_repo_dir() {
 		return 0;
 	fi;
 
+	mkdir -p "$DOTFILES_HOME";
 	printf '%s\n' "$marker_value" > "$marker_file";
 }
 
-# Installer appends below the rc markers are normally moved to ~/.systemspecific
-# by ~/.dotfiles_local_additions at shell start. Run the same migration once
-# before rsync so appends on legacy installs (no marker yet) are not lost.
+# Installer appends below the rc markers (and a legacy ~/.path) are normally
+# moved to ~/.systemspecific by $DOTFILES_HOME/local_additions at shell start.
+# Run the same migration once before rsync so appends on legacy installs (no
+# marker yet) are not lost.
 function migrate_local_additions() {
-	if [ -r ./.dotfiles_local_additions ]; then
-		source ./.dotfiles_local_additions;
+	if [ -r ./.config/dotfiles/local_additions ]; then
+		source ./.config/dotfiles/local_additions;
 		dotfiles_migrate_local_additions;
+	fi;
+}
+
+# One-time migration from the old flat layout (everything directly in $HOME)
+# to $DOTFILES_HOME. Private override files are moved, repo-owned files are
+# removed (repo metadata only when identical to the repo copy).
+function migrate_legacy_layout() {
+	local old new legacy_file;
+	local legacy_repo_files=(
+		.bash_prompt .exports .functions .functions.external.bash .functions.internal.bash
+		.dotfiles_features .dotfiles_features.local.example
+		.dotfiles_agent_guard .dotfiles_agent_guard.local.example
+		.dotfiles_agent_audit .dotfiles_local_additions .path_defaults
+	);
+
+	mkdir -p "$DOTFILES_HOME";
+
+	while IFS=: read -r old new; do
+		if [ -e "$HOME/$old" ] && [ ! -e "$DOTFILES_HOME/$new" ]; then
+			mv "$HOME/$old" "$DOTFILES_HOME/$new" && printf 'Moved ~/%s -> %s/%s\n' "$old" "${DOTFILES_HOME/#$HOME/\~}" "$new";
+		fi;
+	done <<-'EOF'
+		.dotfiles_features.local:features.local
+		.dotfiles_agent_guard.local:agent_guard.local
+		.dotfiles_repo_dir:repo_dir
+	EOF
+
+	for legacy_file in "${legacy_repo_files[@]}"; do
+		if [ -e "$HOME/$legacy_file" ]; then
+			rm -f "$HOME/$legacy_file" && printf 'Removed legacy ~/%s (now in %s)\n' "$legacy_file" "${DOTFILES_HOME/#$HOME/\~}";
+		fi;
+	done;
+	if [ -d "$HOME/.aliases/bash" ]; then
+		rm -rf "$HOME/.aliases/bash" && printf 'Removed legacy ~/.aliases/bash (now in %s/aliases)\n' "${DOTFILES_HOME/#$HOME/\~}";
+		rmdir "$HOME/.aliases" 2> /dev/null || true;
+	fi;
+
+	# Repo metadata that older bootstraps copied into $HOME: only remove when
+	# it is byte-identical to the repo copy (i.e. not the user's own file).
+	for legacy_file in .gitignore .gitattributes; do
+		if [ -f "$HOME/$legacy_file" ] && [ -f "./$legacy_file" ] && cmp -s "$HOME/$legacy_file" "./$legacy_file"; then
+			rm -f "$HOME/$legacy_file" && printf 'Removed ~/%s (repo metadata copied by an older bootstrap)\n' "$legacy_file";
+		fi;
+	done;
+	if [ -d "$HOME/init" ] && [ -d ./init ]; then
+		for legacy_file in ./init/*; do
+			[ -f "$legacy_file" ] || continue;
+			if [ -f "$HOME/init/${legacy_file##*/}" ] && cmp -s "$legacy_file" "$HOME/init/${legacy_file##*/}"; then
+				rm -f "$HOME/init/${legacy_file##*/}";
+			fi;
+		done;
+		rmdir "$HOME/init" 2> /dev/null && printf 'Removed ~/init (repo samples copied by an older bootstrap)\n';
 	fi;
 }
 
 function doIt() {
 	migrate_local_additions;
+	migrate_legacy_layout;
 	rsync --exclude ".git/" \
 		--exclude ".DS_Store" \
 		--exclude ".osx" \
+		--exclude ".gitignore" \
+		--exclude ".gitattributes" \
+		--exclude "init/" \
 		--exclude "*.sh" \
 		--exclude "*.md" \
 		--exclude "*.disabled" \
@@ -166,5 +225,5 @@ else
 		doIt;
 	fi;
 fi;
-unset _command_exists _is_true _run_with_privileges _has_bash_completion_loader _install_bash_completion ensure_bash_completion persist_dotfiles_repo_dir doIt;
+unset _command_exists _is_true _run_with_privileges _has_bash_completion_loader _install_bash_completion ensure_bash_completion persist_dotfiles_repo_dir migrate_local_additions migrate_legacy_layout doIt;
 unset DOTFILES_BOOTSTRAP_SOURCE_DIR dotfiles_bootstrap_branch dotfiles_origin_head_ref;

@@ -238,8 +238,11 @@ function check_for_dot_env {
 }
 
 function dotfiles_resolve_repo_dir {
-	local marker_file="${HOME}/.dotfiles_repo_dir"
+	local marker_file="${DOTFILES_HOME:-${XDG_CONFIG_HOME:-$HOME/.config}/dotfiles}"/repo_dir
 	local candidate=''
+
+	# Legacy location (pre ~/.config/dotfiles layout).
+	[ -r "$marker_file" ] || marker_file="${HOME}/.dotfiles_repo_dir"
 
 	if [ -n "${DOTFILES_REPO_DIR:-}" ] \
 		&& [ -d "$DOTFILES_REPO_DIR" ] \

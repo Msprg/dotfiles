@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-[[ $DOTFILES_DEBUG == "true" ]] && echo "[DOTFILE_DBG: Executing .FUNCTIONS]"
+[[ $DOTFILES_DEBUG == "true" ]] && echo "[DOTFILE_DBG: Executing FUNCTIONS]"
 
 if ! declare -F dotfiles_dbg > /dev/null; then
 	function dotfiles_dbg {
@@ -9,8 +9,8 @@ fi
 
 _dotfiles_functions_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 for functions_file in \
-	"${_dotfiles_functions_dir}/.functions.internal.bash" \
-	"${_dotfiles_functions_dir}/.functions.external.bash"; do
+	"${_dotfiles_functions_dir}/functions.internal.bash" \
+	"${_dotfiles_functions_dir}/functions.external.bash"; do
 	if [ -r "$functions_file" ] && [ -f "$functions_file" ]; then
 		source "$functions_file"
 	else

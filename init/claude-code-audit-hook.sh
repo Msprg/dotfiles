@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Claude Code PostToolUse hook: append every Bash tool call to the agent audit
-# log used by ~/.dotfiles_agent_audit (default ~/.bash_history_audit_agent).
+# log used by $DOTFILES_HOME/agent_audit (default ~/.bash_history_audit_agent).
 #
 # Claude Code executes tool commands in `bash -c` shells that read no rc file,
 # so the dotfiles cannot observe them; this hook receives the command, exit
@@ -22,7 +22,7 @@
 #     }
 #   }
 #
-# Adjust the path if the repo lives elsewhere (see ~/.dotfiles_repo_dir).
+# Adjust the path if the repo lives elsewhere (see ~/.config/dotfiles/repo_dir).
 # Requires python3 or jq. Never fails the tool call: exits 0 on any error.
 
 set -u

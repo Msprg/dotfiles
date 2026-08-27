@@ -20,7 +20,7 @@
 #   (a PostToolUse hook) to feed the same file.
 # - Non-interactive shells fed from stdin/a script file are not recorded.
 #
-# Knobs (env or ~/.dotfiles_agent_guard.local):
+# Knobs (env or $DOTFILES_HOME/agent_guard.local):
 #   DOTFILES_AGENT_AUDIT=false          disable
 #   DOTFILES_AGENT_AUDIT_FILE=<path>    override the file
 #   DOTFILES_AGENT_AUDIT_MAX_CHARS=N    truncate long commands (default 4000)

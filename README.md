@@ -29,32 +29,65 @@ set -- -f; source bootstrap.sh
 What `bootstrap.sh` does:
 - Runs `git pull origin main` from repo root.
 - Rsyncs dotfiles into `$HOME`.
-- Excludes `.git/`, `*.md`, `*.sh`, `*.disabled`, and a few other non-runtime files.
+- Excludes `.git/`, `*.md`, `*.sh`, `*.disabled`, `init/`, repo metadata and a few other non-runtime files.
+- Migrates installs from the old flat layout: moves `*.local` overrides into
+  `~/.config/dotfiles`, removes the old repo-owned dotfiles from `$HOME`.
 - Ensures a Bash completion loader is installed (best effort).
+
+## Layout
+
+Only standard rc files and two private hooks live directly in `$HOME`:
+
+- `~/.bashrc`, `~/.bash_profile`, `~/.inputrc`, `~/.vimrc`, `~/.tmux.conf`, ... (standard)
+- `~/.systemspecific` (private, not in the repo): machine-specific settings,
+  PATH additions and everything installers append; loaded early in every mode.
+  If it exists, it matters.
+- `~/.extra` (private, not in the repo): anything else you don't want to
+  commit; loaded last so it can override.
+
+Everything else lives in `$DOTFILES_HOME` (default `~/.config/dotfiles`,
+override with `DOTFILES_HOME` / `XDG_CONFIG_HOME`), without leading dots:
+
+| File | Purpose |
+| --- | --- |
+| `agent_guard` (+ `agent_guard.local`) | agent / non-interactive detection |
+| `local_additions` | moves installer appends into `~/.systemspecific` |
+| `path_defaults` | well-known tool dirs added to PATH when present |
+| `features` (+ `features.local`) | feature flags and profiles |
+| `prompt` | prompt |
+| `exports` | environment exports |
+| `functions`, `functions.internal.bash`, `functions.external.bash` | loader, runtime hooks, user-facing functions |
+| `aliases/bash/` | modular aliases |
+| `agent_audit` | agent-mode command recorder |
+| `repo_dir` | written by bootstrap: path of the git clone |
+
+The old `~/.path` file is gone; its content is absorbed into
+`~/.systemspecific` automatically.
 
 ## Shell Load Order
 
 Interactive shells enter via `.bashrc`, which sources `.bash_profile`.
+`$D` below stands for `$DOTFILES_HOME`.
 
 Full mode load order:
-`~/.path_defaults` -> `~/.path` -> `~/.dotfiles_features` -> `~/.bash_prompt` -> `~/.exports` -> `~/.functions` -> `~/.extra` -> `~/.systemspecific` -> `~/.aliases/bash/aliases`
+`$D/agent_guard` -> `$D/local_additions` -> `$D/path_defaults` -> `~/.systemspecific` -> `$D/features` -> `$D/prompt` -> `$D/exports` -> `$D/functions` -> `~/.extra` -> `$D/aliases/bash/aliases`
 
 Every load path (full, safe, agent) first moves installer appends from
 `~/.bashrc` / `~/.bash_profile` into `~/.systemspecific` (see "Local Additions
 and Installer PATH Lines") and finishes by de-duplicating `PATH`.
 
 Function file split:
-- `~/.functions` is a loader.
-- `~/.functions.internal.bash` contains internal dotfiles runtime hooks/helpers.
-- `~/.functions.external.bash` contains user-facing interactive function definitions.
+- `$D/functions` is a loader.
+- `$D/functions.internal.bash` contains internal dotfiles runtime hooks/helpers.
+- `$D/functions.external.bash` contains user-facing interactive function definitions.
 
 Safe mode (`BASH_SAFE_MODE=true`) loads only:
-`~/.path_defaults`, `~/.path` and `~/.exports`
+`$D/path_defaults`, `~/.systemspecific` and `$D/exports`
 
 In safe mode, prompt/functions/aliases/completions/PROMPT_COMMAND hooks are skipped.
 
 Agent mode (see below) loads only:
-`~/.path_defaults` -> `~/.path` -> `~/.exports` -> `~/.extra` -> `~/.systemspecific`
+`$D/path_defaults` -> `~/.systemspecific` -> `$D/exports` -> `~/.extra`
 
 ## Local Additions and Installer PATH Lines
 
@@ -62,15 +95,15 @@ Tool installers (`claude`, `codex`, `cursor-agent`, `nvm`, `conda`, `rustup`,
 `pnpm`, ...) either append `export PATH=...`/init lines to `~/.bashrc` or ask
 you to. Two mechanisms make that work with these dotfiles:
 
-- `~/.path_defaults` (committed) prepends well-known per-user tool directories
+- `$DOTFILES_HOME/path_defaults` (committed) prepends well-known per-user tool directories
   (`~/.local/bin`, `~/.cargo/bin`, `~/go/bin`, `~/.bun/bin`, `~/.deno/bin`,
   `~/.volta/bin`, `~/.npm-global/bin`, `~/.local/share/pnpm`, `~/.opencode/bin`,
   linuxbrew, `/snap/bin`, ...) whenever the directory exists, in every load
   path. Most installers therefore need no rc-file edit at all. Private entries
-  still go to `~/.path`, which is loaded afterwards and wins.
+  go to `~/.systemspecific`, which is loaded right afterwards and wins.
 - Both `~/.bashrc` and `~/.bash_profile` end with the marker
   `# >>> dotfiles: local additions below this line survive bootstrap/update >>>`.
-  At every shell start `~/.dotfiles_local_additions` (sourced first by
+  At every shell start `$DOTFILES_HOME/local_additions` (sourced first by
   `~/.bash_profile`, in all modes) moves anything found below the marker into
   `~/.systemspecific`, which bootstrap never touches, and truncates the rc file
   back to the marker. Because `~/.systemspecific` is sourced later in the same
@@ -83,12 +116,13 @@ you to. Two mechanisms make that work with these dotfiles:
   Override the target with `DOTFILES_LOCAL_ADDITIONS_FILE`.
 
 Edits *above* the marker are still overwritten by bootstrap; put those in
-`~/.extra`, `~/.path`, `~/.systemspecific` or the repo.
+`~/.systemspecific`, `~/.extra` or the repo. A leftover `~/.path` is absorbed
+into `~/.systemspecific` and deleted.
 
 ## Agent / Non-Interactive Guard
 
 Coding agents and harnesses (Claude Code, Codex CLI, Cursor, Gemini CLI, ...)
-run commands through shells that read these dotfiles. `~/.dotfiles_agent_guard`
+run commands through shells that read these dotfiles. `$DOTFILES_HOME/agent_guard`
 is sourced first by `~/.bash_profile` and switches to a near-vanilla Bash when
 it detects such a caller:
 
@@ -104,19 +138,19 @@ it detects such a caller:
   scripts). This also covers harnesses without a marker (Copilot CLI, Continue).
 
 Agent mode:
-- Loads `~/.path`, `~/.exports`, `~/.extra`, `~/.systemspecific` only.
+- Loads `path_defaults`, `~/.systemspecific`, `exports`, `~/.extra` only.
 - Skips prompt, feature flags, functions, aliases, completions,
   `PROMPT_COMMAND` / `PS0` / DEBUG-trap hooks, terminal title, update checks,
   `set -b` and shopt tweaks (`nocaseglob`, `autocd`, `cdspell`, ...).
 - Fills in `PAGER`, `GIT_PAGER`, `MANPAGER` with `cat` when the harness left
-  them unset (and replaces the `less -X` from `~/.exports`), sets `CLICOLOR=0`.
+  them unset (and replaces the `less -X` from `exports`), sets `CLICOLOR=0`.
 - Exports `DOTFILES_AGENT=<name>` (e.g. `claude-code`, `codex`, `cursor`,
   `non-interactive`, `forced`) so scripts can tell.
 - Defines `reload` to restart as a full login shell with the guard disabled.
 - Records agent commands to a separate audit file (see "Agent Command Audit").
 
-Knobs (environment or `~/.dotfiles_agent_guard.local`, see
-`.dotfiles_agent_guard.local.example`):
+Knobs (environment or `$DOTFILES_HOME/agent_guard.local`, see
+`agent_guard.local.example`):
 
 | Variable | Effect |
 | --- | --- |
@@ -149,8 +183,8 @@ dotfiles_profile minimal
 dotfiles_profile reset
 ```
 
-Profile settings are resolved in `~/.dotfiles_features` plus optional overrides in
-`~/.dotfiles_features.local`.
+Profile settings are resolved in `$DOTFILES_HOME/features` plus optional overrides in
+`$DOTFILES_HOME/features.local`.
 
 ## Dotfiles Self-Update
 
@@ -165,7 +199,7 @@ Profile settings are resolved in `~/.dotfiles_features` plus optional overrides 
 
 Repo resolution order for checks/updates:
 1. `DOTFILES_REPO_DIR` (if set and valid)
-2. `~/.dotfiles_repo_dir` (written by bootstrap by default)
+2. `$DOTFILES_HOME/repo_dir` (written by bootstrap by default; legacy `~/.dotfiles_repo_dir` still read)
 3. `~/dotFiles`
 4. `~/dotfiles`
 
@@ -213,7 +247,7 @@ timestamp  user  agent  exit:N  took:D  command
 - `user` comes from `BASH_HISTORY_USERNAME` like the regular audit.
 
 Read it with `audit_bash_history -a [N|-f]`. Knobs (env or
-`~/.dotfiles_agent_guard.local`): `DOTFILES_AGENT_AUDIT=false`,
+`$DOTFILES_HOME/agent_guard.local`): `DOTFILES_AGENT_AUDIT=false`,
 `DOTFILES_AGENT_AUDIT_FILE`, `DOTFILES_AGENT_AUDIT_MAX_CHARS` (default 4000).
 
 ## History Audit
@@ -261,10 +295,11 @@ audit_bash_history 100
 
 ## Local Customization Files
 
-- `~/.path`: custom PATH additions.
-- `~/.extra`: private machine/user customizations.
-- `~/.systemspecific`: optional host-specific settings.
-- `~/.dotfiles_features.local`: profile and feature overrides.
+- `~/.systemspecific`: host-specific settings and PATH additions (loaded early,
+  every mode; installer appends and a legacy `~/.path` are moved here).
+- `~/.extra`: private machine/user customizations (loaded last).
+- `$DOTFILES_HOME/features.local`: profile and feature overrides.
+- `$DOTFILES_HOME/agent_guard.local`: agent guard / audit overrides.
 
 ## Agent Notes
 

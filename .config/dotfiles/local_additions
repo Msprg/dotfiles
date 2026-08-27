@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
-[[ $DOTFILES_DEBUG == "true" ]] && echo "[DOTFILE_DBG: Executing .DOTFILES_LOCAL_ADDITIONS]"
+[[ $DOTFILES_DEBUG == "true" ]] && echo "[DOTFILE_DBG: Executing LOCAL_ADDITIONS]"
 
 # Installers (claude, codex, cursor-agent, nvm, conda, rustup, pnpm, ...)
 # append PATH/init lines to the end of ~/.bashrc or ~/.bash_profile. Both files
 # are overwritten by bootstrap.sh / dotfiles_update, so at every shell start
 # anything found below their local-additions marker is MOVED into
-# ~/.systemspecific (never touched by bootstrap, sourced by the full and agent
-# load paths) and removed from the rc file. This runs before ~/.systemspecific
-# is sourced, so moved lines take effect in the very same shell.
+# ~/.systemspecific (never touched by bootstrap, sourced early in every load
+# path) and removed from the rc file. This runs before ~/.systemspecific is
+# sourced, so moved lines take effect in the very same shell.
+#
+# A legacy ~/.path file is absorbed into ~/.systemspecific the same way and
+# then deleted (its role, early machine-specific PATH, moved there).
 #
 # - Paragraphs (blank-line separated blocks) that already exist verbatim in
 #   the target are not appended again, so re-running installers is harmless.
@@ -65,12 +68,14 @@ function __dotfiles_local_additions_has_tail {
 	return 1
 }
 
-# Move the tail of $1 into $2. Expects to run under the lock.
-function __dotfiles_local_additions_move_locked {
-	local file="$1" target="$2"
-	local i n line paragraph='' target_content='' header_written=0 moved=0
+# Append the paragraphs of __dla_lines after __dla_anchor to $2 unless they
+# already exist there verbatim. $1 is the source name used in the header.
+# Sets __dla_moved=1 when something was appended.
+function __dotfiles_local_additions_append_paragraphs {
+	local source_name="$1" target="$2"
+	local i n line paragraph='' target_content='' header_written=0
 
-	__dotfiles_local_additions_has_tail "$file" || return 0
+	__dla_moved=0
 	n=${#__dla_lines[@]}
 	[ -f "$target" ] && target_content="$(< "$target")"
 
@@ -85,23 +90,43 @@ function __dotfiles_local_additions_move_locked {
 
 		if [[ "$target_content" != *"$paragraph"* ]]; then
 			if (( header_written == 0 )); then
-				printf '\n# --- moved from %s by dotfiles on %s ---\n' "${file/#$HOME/\~}" "$(date '+%Y-%m-%d %H:%M:%S')" >> "$target" || return 0
+				printf '\n# --- moved from %s by dotfiles on %s ---\n' "${source_name/#$HOME/\~}" "$(date '+%Y-%m-%d %H:%M:%S')" >> "$target" || return 1
 				header_written=1
 			fi
-			printf '%s\n' "$paragraph" >> "$target" || return 0
+			printf '%s\n' "$paragraph" >> "$target" || return 1
 			target_content+=$'\n'"$paragraph"
-			moved=1
+			__dla_moved=1
 		fi
 		paragraph=''
 	done
-
-	# Truncate the rc file back to its anchor line (in place: same inode/mode).
-	printf '%s\n' "${__dla_lines[@]:0:__dla_anchor + 1}" > "$file"
-	dotfiles_dbg "Local additions: moved tail of ${file/#$HOME/\~} to ${target/#$HOME/\~} (new content appended: $moved)"
+	return 0
 }
 
-function __dotfiles_local_additions_move {
-	local file="$1" target="$2" lock_fd='' target_existed=1
+# Move the tail of rc file $1 into $2, then truncate $1 back to its anchor.
+function __dotfiles_local_additions_move_locked {
+	local file="$1" target="$2"
+
+	__dotfiles_local_additions_has_tail "$file" || return 0
+	__dotfiles_local_additions_append_paragraphs "$file" "$target" || return 0
+	# In place: same inode and mode.
+	printf '%s\n' "${__dla_lines[@]:0:__dla_anchor + 1}" > "$file"
+	dotfiles_dbg "Local additions: moved tail of ${file/#$HOME/\~} to ${target/#$HOME/\~} (new content appended: $__dla_moved)"
+}
+
+# Move the whole content of $1 into $2 and delete $1.
+function __dotfiles_local_additions_absorb_locked {
+	local file="$1" target="$2"
+
+	mapfile -t __dla_lines < "$file" 2> /dev/null || return 0
+	__dla_anchor=-1
+	__dotfiles_local_additions_append_paragraphs "$file" "$target" || return 0
+	rm -f "$file"
+	dotfiles_dbg "Local additions: absorbed ${file/#$HOME/\~} into ${target/#$HOME/\~} (new content appended: $__dla_moved)"
+}
+
+# __dotfiles_local_additions_with_lock <callback> <file> <target>
+function __dotfiles_local_additions_with_lock {
+	local callback="$1" file="$2" target="$3" lock_fd='' target_existed=1
 
 	# Decide before the lock fd creates the file: a target we create ourselves
 	# gets mode 600 (installer lines may carry tokens).
@@ -114,7 +139,7 @@ function __dotfiles_local_additions_move {
 			return 0
 		fi
 	fi
-	__dotfiles_local_additions_move_locked "$file" "$target"
+	"$callback" "$file" "$target"
 	[ -n "$lock_fd" ] && exec {lock_fd}>&-
 	if (( target_existed == 0 )) && [ -f "$target" ]; then
 		chmod 600 "$target" 2> /dev/null
@@ -129,7 +154,12 @@ function dotfiles_migrate_local_additions {
 	for file in "$HOME/.bashrc" "$HOME/.bash_profile"; do
 		[ -f "$file" ] && [ -r "$file" ] && [ -w "$file" ] || continue
 		__dotfiles_local_additions_has_tail "$file" || continue
-		__dotfiles_local_additions_move "$file" "$target"
+		__dotfiles_local_additions_with_lock __dotfiles_local_additions_move_locked "$file" "$target"
 	done
-	unset __dla_lines __dla_anchor
+
+	if [ -f "$HOME/.path" ] && [ -r "$HOME/.path" ] && [ -w "$HOME/.path" ]; then
+		__dotfiles_local_additions_with_lock __dotfiles_local_additions_absorb_locked "$HOME/.path" "$target"
+	fi
+
+	unset __dla_lines __dla_anchor __dla_moved
 }

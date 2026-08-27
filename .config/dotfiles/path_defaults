@@ -7,9 +7,9 @@
 # when the directory exists and is not already in PATH, so the tools resolve in
 # every load path (full, safe, agent) and on fresh machines.
 #
-# Private or machine-specific entries belong in ~/.path, which is sourced right
-# after this file and therefore wins. Installer appends at the end of ~/.bashrc
-# keep working too (see the local-additions tail in ~/.bashrc).
+# Private or machine-specific entries belong in ~/.systemspecific, which is
+# sourced right after this file and therefore wins. Installer appends at the
+# end of ~/.bashrc are moved there automatically (see local_additions).
 
 function __dotfiles_path_prepend {
 	local dir="$1"

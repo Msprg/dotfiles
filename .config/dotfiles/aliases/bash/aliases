@@ -64,7 +64,7 @@ alias xt='extract'
 # Add an "alert" alias for long running commands.  Use like so:
 #   sleep 10; alert
 alias alert='notify-send --urgency=low -i "$([ $? = 0 ] && echo terminal || echo error)" "$(history|tail -n1|sed -e '\''s/^\s*[0-9]\+\s*//;s/[;&|]\s*alert$//'\'')"'
-# `catt`, `ports`, and reload helpers are defined in ~/.functions.external.bash.
+# `catt`, `ports`, and reload helpers are defined in functions.external.bash.
 
 # Get week number
 alias week='date +%V'
@@ -121,12 +121,12 @@ alias map="xargs -n1"
 alias path='echo -e ${PATH//:/\\n}'
 
 
-source "$HOME/.aliases/bash/fuck.aliases.bash"
-# source "$HOME/.aliases/bash/clipboard.aliases.bash"
-source "$HOME/.aliases/bash/git.aliases.bash"
-source "$HOME/.aliases/bash/systemd.aliases.bash"
-source "$HOME/.aliases/bash/curl.aliases.bash"
-source "$HOME/.aliases/bash/docker.aliases.bash"
-source "$HOME/.aliases/bash/docker_compose.aliases.bash"
-#source "$HOME/.aliases/bash/dnf.aliases.bash"
-#source "$HOME/.aliases/bash/apt.aliases.bash"
+source "${BASH_SOURCE[0]%/*}/fuck.aliases.bash"
+# source "${BASH_SOURCE[0]%/*}/clipboard.aliases.bash"
+source "${BASH_SOURCE[0]%/*}/git.aliases.bash"
+source "${BASH_SOURCE[0]%/*}/systemd.aliases.bash"
+source "${BASH_SOURCE[0]%/*}/curl.aliases.bash"
+source "${BASH_SOURCE[0]%/*}/docker.aliases.bash"
+source "${BASH_SOURCE[0]%/*}/docker_compose.aliases.bash"
+#source "${BASH_SOURCE[0]%/*}/dnf.aliases.bash"
+#source "${BASH_SOURCE[0]%/*}/apt.aliases.bash"
