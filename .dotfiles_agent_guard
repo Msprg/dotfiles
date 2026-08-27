@@ -1,0 +1,166 @@
+#!/usr/bin/env bash
+[[ $DOTFILES_DEBUG == "true" ]] && echo "[DOTFILE_DBG: Executing .DOTFILES_AGENT_GUARD]"
+
+# Agent / non-interactive guard.
+#
+# Coding agents and harnesses (Claude Code, Codex CLI, Cursor, Gemini CLI, ...)
+# run commands in shells that read these dotfiles. Prompt customization,
+# aliases, PROMPT_COMMAND/DEBUG-trap hooks, .env auto-loading and update
+# notices are useless there and often break command parsing. This file is
+# sourced first by ~/.bash_profile; when it detects such a caller it sets
+# DOTFILES_AGENT_MODE_ACTIVE=true and ~/.bash_profile takes the minimal path.
+#
+# Detection order:
+#   1. DOTFILES_AGENT_GUARD=false      -> guard disabled, nothing is detected
+#   2. DOTFILES_AGENT_MODE=true        -> forced on (agent name "forced")
+#   3. known agent marker variables    -> agent mode, DOTFILES_AGENT=<name>
+#   4. non-interactive shell ($- has no "i") when
+#      DOTFILES_AGENT_GUARD_NONINTERACTIVE=true (default)
+#                                      -> agent mode, DOTFILES_AGENT=non-interactive
+#
+# Knobs (set in the environment or in ~/.dotfiles_agent_guard.local):
+#   DOTFILES_AGENT_GUARD=true|false            enable/disable the guard (default true)
+#   DOTFILES_AGENT_MODE=true                   force agent mode for this shell
+#   DOTFILES_AGENT_GUARD_NONINTERACTIVE=true|false
+#                                              treat non-interactive shells as agents (default true)
+#   DOTFILES_AGENT_GUARD_EXTRA_MARKERS='VAR[:name] ...'
+#                                              additional marker variables (space separated)
+#   DOTFILES_AGENT_GUARD_ALLOW_FULL='name ...'  detected agents that should still get the
+#                                              full environment (e.g. 'cursor cline')
+#
+# Exported result:
+#   DOTFILES_AGENT=<name>   set only when agent mode is active
+#
+# DOTFILES_AGENT_GUARD and DOTFILES_AGENT_MODE are one-shot: the full/safe load
+# path unsets them afterwards so a `DOTFILES_AGENT_GUARD=false` shell does not
+# silently disable the guard for every agent launched from it. To hand an
+# agent the full environment for one run, prefix its launcher:
+#   DOTFILES_AGENT_GUARD=false claude
+
+if ! declare -F dotfiles_dbg > /dev/null; then
+	function dotfiles_dbg {
+		[[ "$DOTFILES_DEBUG" == "true" ]] && printf '[DOTFILE_DBG: %s]\n' "$*"
+	}
+fi
+
+DOTFILES_AGENT_MODE_ACTIVE='false'
+unset DOTFILES_AGENT
+
+__dotfiles_agent_guard_local="$HOME/.dotfiles_agent_guard.local"
+if [ -r "$__dotfiles_agent_guard_local" ] && [ -f "$__dotfiles_agent_guard_local" ]; then
+	dotfiles_dbg "Sourcing agent guard overrides from $__dotfiles_agent_guard_local"
+	source "$__dotfiles_agent_guard_local"
+fi
+unset __dotfiles_agent_guard_local
+
+# Marker variables exported by agents/harnesses into the shells they spawn.
+# Format: VAR:name  ("VAR:$" uses the variable's value as the agent name).
+__dotfiles_agent_markers=(
+	# Anthropic Claude Code (CLI, SDK, IDE extensions). Login shell for the
+	# snapshot, `bash -c` per tool call.
+	'CLAUDECODE:claude-code'
+	'CLAUDE_CODE_ENTRYPOINT:claude-code'
+	# OpenAI Codex CLI. Runs `$SHELL -lc` (login, non-interactive).
+	'CODEX_SANDBOX:codex'
+	'CODEX_SANDBOX_NETWORK_DISABLED:codex'
+	'CODEX_THREAD_ID:codex'
+	'CODEX_CI:codex'
+	# Cursor agent (IDE agent terminal and cursor-agent CLI).
+	'CURSOR_AGENT:cursor'
+	# Google Gemini CLI. Runs `bash -c`.
+	'GEMINI_CLI:gemini-cli'
+	# GitHub Copilot agent mode in VS Code (VS Code >= 1.121).
+	'VSCODE_AGENT:vscode-copilot'
+	'COPILOT_AGENT:vscode-copilot'
+	# Cline (VS Code extension, >= 3.24).
+	'CLINE_ACTIVE:cline'
+	# Augment Code CLI (auggie).
+	'AUGMENT_AGENT:augment'
+	# Block Goose. Runs `bash -c`.
+	'GOOSE_TERMINAL:goose'
+	# OpenCode (sst/anomalyco).
+	'OPENCODE:opencode'
+	'OPENCODE_CLIENT:opencode'
+	# Kiro CLI (FIFO paths present only when the agent drives the command).
+	'AGENT_CONTEXT_OUT:kiro'
+	# Pi coding agent.
+	'PI_CODING_AGENT:pi'
+	# Emerging generic conventions: AGENT=<name> (Amp, Goose, Bun),
+	# AI_AGENT=<name> (Vercel detect-agent, Pi).
+	'AGENT:$'
+	'AI_AGENT:$'
+)
+
+function __dotfiles_agent_detect {
+	local marker var_name agent_name var_value
+
+	for marker in "${__dotfiles_agent_markers[@]}" ${DOTFILES_AGENT_GUARD_EXTRA_MARKERS:-}; do
+		var_name="${marker%%:*}"
+		agent_name="${marker#*:}"
+		[ "$agent_name" = "$marker" ] && agent_name="$"
+		[[ "$var_name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+
+		var_value="${!var_name-}"
+		[ -n "$var_value" ] || continue
+
+		if [ "$agent_name" = '$' ]; then
+			case "$var_value" in
+				1|[Tt][Rr][Uu][Ee]|[Yy][Ee][Ss]) agent_name="${var_name,,}" ;;
+				*) agent_name="${var_value,,}" ;;
+			esac
+		fi
+
+		printf '%s\n' "$agent_name"
+		return 0
+	done
+
+	# Devin workspaces carry no variable, only a marker file.
+	if [ -e /opt/.devin ]; then
+		printf '%s\n' 'devin'
+		return 0
+	fi
+
+	return 1
+}
+
+function __dotfiles_agent_guard_is_true {
+	case "${1-}" in
+		1|[Tt][Rr][Uu][Ee]|[Yy][Ee][Ss]|[Oo][Nn]) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+function __dotfiles_agent_guard_allows_full {
+	local allowed
+	for allowed in ${DOTFILES_AGENT_GUARD_ALLOW_FULL:-}; do
+		[ "${allowed,,}" = "$1" ] && return 0
+	done
+	return 1
+}
+
+__dotfiles_agent_detected=''
+if [ -n "${DOTFILES_AGENT_GUARD+x}" ] && ! __dotfiles_agent_guard_is_true "$DOTFILES_AGENT_GUARD"; then
+	dotfiles_dbg "Agent guard disabled via DOTFILES_AGENT_GUARD=${DOTFILES_AGENT_GUARD}"
+elif __dotfiles_agent_guard_is_true "${DOTFILES_AGENT_MODE-}"; then
+	__dotfiles_agent_detected='forced'
+	dotfiles_dbg "Agent mode forced via DOTFILES_AGENT_MODE=${DOTFILES_AGENT_MODE}"
+elif __dotfiles_agent_detected="$(__dotfiles_agent_detect)"; then
+	dotfiles_dbg "Agent marker detected: ${__dotfiles_agent_detected}"
+elif [[ $- != *i* ]] && __dotfiles_agent_guard_is_true "${DOTFILES_AGENT_GUARD_NONINTERACTIVE-true}"; then
+	__dotfiles_agent_detected='non-interactive'
+	dotfiles_dbg "Non-interactive shell (\$-=$-); treating as agent"
+else
+	dotfiles_dbg "No agent detected; interactive shell"
+fi
+
+if [ -n "$__dotfiles_agent_detected" ]; then
+	if [ "$__dotfiles_agent_detected" != 'forced' ] && __dotfiles_agent_guard_allows_full "$__dotfiles_agent_detected"; then
+		dotfiles_dbg "Agent '${__dotfiles_agent_detected}' listed in DOTFILES_AGENT_GUARD_ALLOW_FULL; loading full environment"
+	else
+		DOTFILES_AGENT_MODE_ACTIVE='true'
+		export DOTFILES_AGENT="$__dotfiles_agent_detected"
+	fi
+fi
+
+unset __dotfiles_agent_detected __dotfiles_agent_markers
+unset -f __dotfiles_agent_detect __dotfiles_agent_guard_is_true __dotfiles_agent_guard_allows_full

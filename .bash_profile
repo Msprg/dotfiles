@@ -10,16 +10,68 @@ fi
 dotfiles_dbg "--- S T A R T ---"
 dotfiles_dbg "Executing .BASH_PROFILE"
 
-# Cause the status of terminated background jobs to be reported immediately,
-# rather than before printing the next primary prompt.
-set -b
-
+# Agent / non-interactive guard: decides DOTFILES_AGENT_MODE_ACTIVE before
+# anything else is loaded. See ~/.dotfiles_agent_guard for the knobs.
+DOTFILES_AGENT_MODE_ACTIVE='false'
+if [ -r ~/.dotfiles_agent_guard ] && [ -f ~/.dotfiles_agent_guard ]; then
+	dotfiles_dbg "Sourcing ~/.dotfiles_agent_guard"
+	source ~/.dotfiles_agent_guard
+else
+	dotfiles_dbg "Skipping missing/unreadable ~/.dotfiles_agent_guard"
+fi
 
 # Load the shell dotfiles, and then some:
 # * ~/.path can be used to extend `$PATH`.
 # * ~/.extra can be used for other settings you don’t want to commit.
-if [[ "$BASH_SAFE_MODE" == "true" ]]; then
+if [[ "$DOTFILES_AGENT_MODE_ACTIVE" == "true" ]]; then
+	dotfiles_dbg "Agent guard active (DOTFILES_AGENT=${DOTFILES_AGENT}); entering agent load path"
+	# Agent mode: a near-vanilla Bash for coding agents / harnesses and
+	# non-interactive shells. Loads PATH, exports and private per-machine
+	# settings only. Skips: prompt, features, functions, aliases, completions,
+	# PROMPT_COMMAND/DEBUG/PS0 hooks, terminal title, update checks, `set -b`
+	# and all shopt tweaks (nocaseglob, autocd, cdspell, ...).
+	for file in ~/.{path,exports,extra,systemspecific}; do
+		if [ -r "$file" ] && [ -f "$file" ]; then
+			dotfiles_dbg "Sourcing $file"
+			source "$file"
+		else
+			dotfiles_dbg "Skipping missing/unreadable $file"
+		fi
+	done
+	unset file
+
+	# Agent-friendly defaults: never block on a pager, never force colors.
+	# Pager variables are only filled in when the harness left them unset.
+	export PAGER="${PAGER:-cat}"
+	export GIT_PAGER="${GIT_PAGER:-cat}"
+	export MANPAGER="${MANPAGER:-cat}"
+	if [ "$MANPAGER" = 'less -X' ]; then
+		# ~/.exports sets this unconditionally; a pager still blocks an agent.
+		export MANPAGER='cat'
+	fi
+	export CLICOLOR=0
+	dotfiles_dbg "Agent-friendly env applied: PAGER=$PAGER GIT_PAGER=$GIT_PAGER MANPAGER=$MANPAGER CLICOLOR=$CLICOLOR"
+
+	# Escape hatch for interactive agent shells: `reload` restarts as a full
+	# login shell with the guard disabled for that shell only.
+	function reload {
+		unset DOTFILES_AGENT DOTFILES_AGENT_MODE DOTFILES_AGENT_MODE_ACTIVE
+		export DOTFILES_AGENT_GUARD=false
+		exec "${SHELL:-bash}" -l
+	}
+
+	unset DOTFILES_AGENT_MODE_ACTIVE
+	dotfiles_dbg "Agent load path completed"
+elif [[ "$BASH_SAFE_MODE" == "true" ]]; then
 	dotfiles_dbg "BASH_SAFE_MODE=true; entering safe mode load path"
+	# The guard knobs are one-shot; drop them so agents launched from this
+	# shell are guarded normally.
+	unset DOTFILES_AGENT_GUARD DOTFILES_AGENT_MODE DOTFILES_AGENT_MODE_ACTIVE
+
+	# Cause the status of terminated background jobs to be reported immediately,
+	# rather than before printing the next primary prompt.
+	set -b
+
 	# Safe mode: load only essential configuration (PATH, exports, basic shell options).
 	# Skips: prompt, functions, aliases, completions, PROMPT_COMMAND hooks.
 	for file in ~/.{path,exports}; do
@@ -49,6 +101,7 @@ if [[ "$BASH_SAFE_MODE" == "true" ]]; then
 
 		unset var_name
 		unset PS0 PS1 PS2 PS4 PROMPT_COMMAND
+		unset DOTFILES_AGENT DOTFILES_AGENT_MODE DOTFILES_AGENT_MODE_ACTIVE
 	}
 
 	function reload {
@@ -65,6 +118,13 @@ if [[ "$BASH_SAFE_MODE" == "true" ]]; then
 	}
 else
 	dotfiles_dbg "BASH_SAFE_MODE=false; entering full load path"
+	# The guard knobs are one-shot; drop them so agents launched from this
+	# shell are guarded normally.
+	unset DOTFILES_AGENT_GUARD DOTFILES_AGENT_MODE DOTFILES_AGENT_MODE_ACTIVE
+
+	# Cause the status of terminated background jobs to be reported immediately,
+	# rather than before printing the next primary prompt.
+	set -b
 
 	for file in ~/.{path,dotfiles_features,bash_prompt,exports,functions,extra,systemspecific}; do
 		if [ -r "$file" ] && [ -f "$file" ]; then
@@ -345,4 +405,4 @@ unset alias_line alias_name alias_value git_alias_names;
 
 dotfiles_dbg "Full interactive load path completed"
 
-fi # end BASH_SAFE_MODE check
+fi # end DOTFILES_AGENT_MODE_ACTIVE / BASH_SAFE_MODE check

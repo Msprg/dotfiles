@@ -1,0 +1,16 @@
+# Local overrides for the agent / non-interactive guard (~/.dotfiles_agent_guard).
+# Copy to ~/.dotfiles_agent_guard.local and uncomment what you need.
+
+# Disable the guard completely (every shell gets the full dotfiles):
+# DOTFILES_AGENT_GUARD=false
+
+# Keep full dotfiles for plain non-interactive shells (bash -lc, cron, ...);
+# only explicit agent markers trigger the minimal environment:
+# DOTFILES_AGENT_GUARD_NONINTERACTIVE=false
+
+# Extra marker variables, optionally with an agent name (VAR or VAR:name):
+# DOTFILES_AGENT_GUARD_EXTRA_MARKERS='MY_HARNESS:my-harness SOME_OTHER_VAR'
+
+# Detected agents that should still receive the full environment, e.g. IDE
+# agent terminals you also type into yourself:
+# DOTFILES_AGENT_GUARD_ALLOW_FULL='cursor cline vscode-copilot'

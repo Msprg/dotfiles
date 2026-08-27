@@ -49,6 +49,54 @@ Safe mode (`BASH_SAFE_MODE=true`) loads only:
 
 In safe mode, prompt/functions/aliases/completions/PROMPT_COMMAND hooks are skipped.
 
+Agent mode (see below) loads only:
+`~/.path` -> `~/.exports` -> `~/.extra` -> `~/.systemspecific`
+
+## Agent / Non-Interactive Guard
+
+Coding agents and harnesses (Claude Code, Codex CLI, Cursor, Gemini CLI, ...)
+run commands through shells that read these dotfiles. `~/.dotfiles_agent_guard`
+is sourced first by `~/.bash_profile` and switches to a near-vanilla Bash when
+it detects such a caller:
+
+- Known marker variables: `CLAUDECODE` / `CLAUDE_CODE_ENTRYPOINT` (Claude Code),
+  `CODEX_SANDBOX` / `CODEX_SANDBOX_NETWORK_DISABLED` / `CODEX_THREAD_ID` /
+  `CODEX_CI` (Codex CLI), `CURSOR_AGENT` (Cursor), `GEMINI_CLI` (Gemini CLI),
+  `VSCODE_AGENT` / `COPILOT_AGENT` (VS Code Copilot agent mode), `CLINE_ACTIVE`
+  (Cline), `AUGMENT_AGENT` (Augment), `GOOSE_TERMINAL` (Goose), `OPENCODE` /
+  `OPENCODE_CLIENT` (OpenCode), `AGENT_CONTEXT_OUT` (Kiro), `PI_CODING_AGENT`
+  (Pi), the generic `AGENT=<name>` / `AI_AGENT=<name>` conventions (Amp, Goose,
+  Bun, Vercel detect-agent) and the `/opt/.devin` marker file.
+- Any non-interactive shell that reads `~/.bash_profile` (`bash -lc`, cron,
+  scripts). This also covers harnesses without a marker (Copilot CLI, Continue).
+
+Agent mode:
+- Loads `~/.path`, `~/.exports`, `~/.extra`, `~/.systemspecific` only.
+- Skips prompt, feature flags, functions, aliases, completions,
+  `PROMPT_COMMAND` / `PS0` / DEBUG-trap hooks, terminal title, update checks,
+  `set -b` and shopt tweaks (`nocaseglob`, `autocd`, `cdspell`, ...).
+- Fills in `PAGER`, `GIT_PAGER`, `MANPAGER` with `cat` when the harness left
+  them unset (and replaces the `less -X` from `~/.exports`), sets `CLICOLOR=0`.
+- Exports `DOTFILES_AGENT=<name>` (e.g. `claude-code`, `codex`, `cursor`,
+  `non-interactive`, `forced`) so scripts can tell.
+- Defines `reload` to restart as a full login shell with the guard disabled.
+
+Knobs (environment or `~/.dotfiles_agent_guard.local`, see
+`.dotfiles_agent_guard.local.example`):
+
+| Variable | Effect |
+| --- | --- |
+| `DOTFILES_AGENT_GUARD=false` | Disable the guard; one-shot, e.g. `DOTFILES_AGENT_GUARD=false claude` gives that agent the full environment. |
+| `DOTFILES_AGENT_MODE=true` | Force agent mode for the shell (and its children). |
+| `DOTFILES_AGENT_GUARD_NONINTERACTIVE=false` | Do not treat plain non-interactive shells as agents. |
+| `DOTFILES_AGENT_GUARD_EXTRA_MARKERS='VAR[:name] ...'` | Extra marker variables. Without `:name` the variable's value (or lowercased name for `1`/`true`) is used as the agent name. |
+| `DOTFILES_AGENT_GUARD_ALLOW_FULL='name ...'` | Detected agents that still get the full environment (e.g. `cursor cline`). |
+
+`DOTFILES_AGENT_GUARD` and `DOTFILES_AGENT_MODE` are unset by the full/safe
+load path so a shell where you disabled the guard does not silently disable it
+for every agent launched from it. Use `DOTFILES_DEBUG=true` to trace the
+decision.
+
 ## Runtime Controls
 
 Quick shell reload helpers:

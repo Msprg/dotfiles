@@ -11,11 +11,45 @@ The main shell entry point is `.bash_profile`, which sources config in this orde
 `.systemspecific` → `.aliases/bash/aliases`
 
 Notes:
+- `.bash_profile` first sources `.dotfiles_agent_guard`. When it detects a
+  coding agent / harness (marker variables such as `CLAUDECODE`,
+  `CODEX_SANDBOX*`, `CURSOR_AGENT`, `GEMINI_CLI`, `AGENT=...`) or a
+  non-interactive shell, it takes the **agent load path** instead:
+  `~/.path` → `.exports` → `.extra` → `.systemspecific` and nothing else. See
+  "Agent Mode" below.
 - `.bashrc` only sources `.bash_profile` for interactive shells.
 - If you need custom PATH or private overrides, use `~/.path` and `~/.extra`.
 - Feature toggles and profile defaults live in `~/.dotfiles_features`; optional
   machine-local overrides can be placed in `~/.dotfiles_features.local`.
 - Safe mode can be entered with `BASH_SAFE_MODE="true"` or `safe_reload`.
+
+## Agent Mode (what you most likely run in)
+
+If you are a coding agent, the shells you spawn almost certainly land in agent
+mode: `DOTFILES_AGENT` is exported (e.g. `claude-code`, `codex`, `cursor`,
+`non-interactive`) and the environment is near-vanilla Bash:
+
+- No aliases, no dotfiles functions, no completions, no custom prompt.
+- No `PROMPT_COMMAND`, `PS0` or DEBUG-trap hooks: no `.env` auto-loading, no
+  per-directory history switching, no history audit, no update notices, no
+  terminal-title escape sequences on stdout.
+- Default shopt settings (`nocaseglob`, `autocd`, `cdspell`, `globstar` are
+  **not** enabled).
+- `PAGER`, `GIT_PAGER`, `MANPAGER` default to `cat`; `CLICOLOR=0`.
+- Only `~/.path`, `~/.exports`, `~/.extra`, `~/.systemspecific` are loaded
+  (PATH, `EDITOR=nano`, history sizes, private per-machine settings).
+
+Everything in "Behavior That Affects Automation" below therefore only applies
+when the guard is disabled (`DOTFILES_AGENT_GUARD=false`), the agent is listed
+in `DOTFILES_AGENT_GUARD_ALLOW_FULL`, or the harness starts an interactive
+shell without any marker variable (e.g. Aider's `bash -i -c`). Do not "fix"
+missing aliases/functions by sourcing `~/.bash_profile` with the guard
+disabled; use `command`/full paths instead.
+
+Guard knobs live in `.dotfiles_agent_guard` (env or
+`~/.dotfiles_agent_guard.local`): `DOTFILES_AGENT_GUARD`, `DOTFILES_AGENT_MODE`,
+`DOTFILES_AGENT_GUARD_NONINTERACTIVE`, `DOTFILES_AGENT_GUARD_EXTRA_MARKERS`,
+`DOTFILES_AGENT_GUARD_ALLOW_FULL`. Trace decisions with `DOTFILES_DEBUG=true`.
 
 ## Behavior That Affects Automation
 
@@ -44,6 +78,9 @@ Notes:
   minimal shell that only loads `~/.path` and `~/.exports`. This skips the
   prompt, functions, aliases, completions, and PROMPT_COMMAND hooks. Use
   `reload` from safe mode to return to a full shell.
+- **Agent mode**: entered automatically by `.dotfiles_agent_guard` (see
+  above); `reload` from an interactive agent shell returns to a full shell
+  with the guard disabled for that shell only.
 
 ## Feature Profiles and Hooks
 
@@ -114,6 +151,8 @@ Dotfiles repo resolution order used by update checks and `dotfiles_update`:
 
 ## Other Notable Files
 
+- `.dotfiles_agent_guard`: agent / non-interactive detection sourced first by
+  `.bash_profile`; `.dotfiles_agent_guard.local.example` documents overrides
 - `.inputrc`: readline completion and history settings
 - `.tmux.conf`: tmux prefix and keybindings
 - `.curlrc` / `.wgetrc`: networking defaults

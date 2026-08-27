@@ -810,6 +810,7 @@ function _dotfiles_unset_runtime_env {
 
 	unset var_name
 	unset PS0 PS1 PS2 PS4 PROMPT_COMMAND
+	unset DOTFILES_AGENT DOTFILES_AGENT_MODE DOTFILES_AGENT_MODE_ACTIVE
 }
 
 function _command_exists() {
