@@ -3,7 +3,10 @@
 
 if ! declare -F dotfiles_dbg > /dev/null; then
 	function dotfiles_dbg {
+		# Always return 0: callers routinely end with a dbg line, and a
+		# fall-through rc of 1 (debug off) would corrupt their exit status.
 		[[ "$DOTFILES_DEBUG" == "true" ]] && printf '[DOTFILE_DBG: %s]\n' "$*"
+		return 0
 	}
 fi
 

@@ -65,7 +65,6 @@ last_cmd_exit_code=$? # Here to init this env var on the dotfiles load
 fancyX='✗'
 checkmark='✓'
 __dotfiles_last_pwd="$PWD"
-__dotfiles_last_audit_histcmd=''
 __dotfiles_prompt_last_exit_code=0
 __dotfiles_loaded_env_file=''
 __dotfiles_loaded_env_signature=''
@@ -108,15 +107,20 @@ if [[ "${DOTFILES_FEATURE_TRACK_COMMAND_DURATION:-false}" == "true" ]]; then
 			if [[ "$use_ps0" == 'true' ]]; then
 				PS0="${ps0_timer_hook}${PS0:-}"
 				export PS0
-				# Keep timing start in one place (PS0) to avoid DEBUG-trap overhead.
+				# Keep timing start in one place (PS0); the shared DEBUG
+				# trap (10-history.bash) may still be installed for the
+				# audit capture, so only disarm the timer side here.
+				__dotfiles_debug_timer_armed=0
 				trap - DEBUG
 				dotfiles_dbg ".FUNCTIONS installed PS0 hook for timer_start (method=${requested_method})"
 			else
-				trap 'timer_start' DEBUG
+				__dotfiles_debug_timer_armed=1
+				__dotfiles_install_debug_trap
 				dotfiles_dbg ".FUNCTIONS installed DEBUG trap for timer_start (method=debug)"
 			fi
 		else
-			trap 'timer_start' DEBUG
+			__dotfiles_debug_timer_armed=1
+			__dotfiles_install_debug_trap
 			dotfiles_dbg ".FUNCTIONS installed DEBUG trap for timer_start (PS0 unsupported, method=${requested_method})"
 		fi
 	}
@@ -129,7 +133,9 @@ fi
 function do_my_checks {
 	last_cmd_exit_code="${__dotfiles_prompt_last_exit_code:-$?}"
 	timer_stop # call asap after acquiring the last exit code
-	append_bash_history_audit
+	if [[ "${DOTFILES_FEATURE_HISTORY_AUDIT:-true}" == "true" ]]; then
+		append_bash_history_audit
+	fi
 	__dotfiles_maybe_show_update_notice_once
 
 	if [[ "${DOTFILES_FEATURE_AUTO_DOT_ENV:-false}" == "true" ]]; then
@@ -269,9 +275,11 @@ function add_prompt_command {
 		prompt_part="${prompt_part#"${prompt_part%%[![:space:]]*}"}"
 		prompt_part="${prompt_part%"${prompt_part##*[![:space:]]}"}"
 
-		if [ -z "$prompt_part" ] || [ "$prompt_part" = 'do_my_checks' ] || [ "$prompt_part" = 'capture_prompt_exit_status' ]; then
-			continue
-		fi
+		case "$prompt_part" in
+			'' | do_my_checks | capture_prompt_exit_status | __dotfiles_audit_prompt_hook | __dotfiles_audit_capture_arm)
+				continue
+				;;
+		esac
 
 		if [ -z "$rebuilt_prompt_command" ]; then
 			rebuilt_prompt_command="$prompt_part"
@@ -301,9 +309,11 @@ function remove_prompt_command {
 		prompt_part="${prompt_part#"${prompt_part%%[![:space:]]*}"}"
 		prompt_part="${prompt_part%"${prompt_part##*[![:space:]]}"}"
 
-		if [ -z "$prompt_part" ] || [ "$prompt_part" = 'do_my_checks' ] || [ "$prompt_part" = 'capture_prompt_exit_status' ]; then
-			continue
-		fi
+		case "$prompt_part" in
+			'' | do_my_checks | capture_prompt_exit_status | __dotfiles_audit_prompt_hook | __dotfiles_audit_capture_arm)
+				continue
+				;;
+		esac
 
 		if [ -z "$rebuilt_prompt_command" ]; then
 			rebuilt_prompt_command="$prompt_part"
@@ -318,6 +328,14 @@ function remove_prompt_command {
 
 if [[ "${DOTFILES_FEATURE_PROMPT_HOOKS:-false}" == "true" ]]; then
 	add_prompt_command
+	if [[ "${DOTFILES_FEATURE_HISTORY_AUDIT:-true}" == "true" ]]; then
+		__dotfiles_install_audit_capture
+	fi
+elif [[ "${DOTFILES_FEATURE_HISTORY_AUDIT:-true}" == "true" ]]; then
+	# Minimal-style profile with auditing on: no cosmetics, but every prompt
+	# cycle still records the last command (see 10-history.bash).
+	remove_prompt_command
+	__dotfiles_install_lean_audit_hook
 else
 	remove_prompt_command
 fi

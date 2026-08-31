@@ -27,7 +27,52 @@
 
 set -u
 
-audit_file="${DOTFILES_AGENT_AUDIT_FILE:-$HOME/.bash_history_audit_agent}"
+# Audit file resolution — keep in sync with __dotfiles_audit_resolve_file in
+# .config/dotfiles/functions.internal.d/10-history.bash: explicit override,
+# then the shared per-user store, then the legacy $HOME file. The hook runs
+# with Claude Code's environment, which may not carry BASH_HISTORY_USERNAME;
+# id -un covers that.
+resolve_audit_file() {
+	local override="${DOTFILES_AGENT_AUDIT_FILE:-}"
+	local legacy="$HOME/.bash_history_audit_agent"
+	local dir candidate account_candidate identity
+
+	if [ -n "$override" ]; then
+		printf '%s\n' "$override"
+		return 0
+	fi
+
+	dir="${DOTFILES_AUDIT_DIR:-}"
+	if [ -z "$dir" ] && [ "${DOTFILES_INSTALL_SCOPE:-user}" = 'system' ]; then
+		dir='/var/log/dotfiles/audit'
+	fi
+	if [ -z "$dir" ] && [ -d '/var/log/dotfiles/audit' ]; then
+		# Hook processes don't inherit the profile.d scope var; the presence
+		# of the shared store is authoritative enough.
+		dir='/var/log/dotfiles/audit'
+	fi
+
+	if [ -n "$dir" ] && [ -d "$dir" ] && [ -x "$dir" ]; then
+		identity="${BASH_HISTORY_USERNAME:-}"
+		if [ -z "$identity" ] || ! [[ "$identity" =~ ^[A-Za-z0-9_@][A-Za-z0-9._@-]{0,63}$ ]]; then
+			identity="$(id -un)"
+		fi
+		candidate="$dir/${identity}.agent.log"
+		if [ -w "$candidate" ] || { [ ! -e "$candidate" ] && [ -w "$dir" ]; }; then
+			printf '%s\n' "$candidate"
+			return 0
+		fi
+		account_candidate="$dir/$(id -un).agent.log"
+		if [ "$account_candidate" != "$candidate" ] \
+			&& { [ -w "$account_candidate" ] || { [ ! -e "$account_candidate" ] && [ -w "$dir" ]; }; }; then
+			printf '%s\n' "$account_candidate"
+			return 0
+		fi
+	fi
+
+	printf '%s\n' "$legacy"
+}
+audit_file="$(resolve_audit_file)"
 max_chars="${DOTFILES_AGENT_AUDIT_MAX_CHARS:-4000}"
 [[ "$max_chars" =~ ^[0-9]+$ ]] || max_chars=4000
 
