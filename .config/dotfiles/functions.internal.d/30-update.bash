@@ -50,19 +50,22 @@ function __dotfiles_update_target_branch {
 }
 
 function __dotfiles_read_install_metadata {
-	local metadata_file="${DOTFILES_INSTALL_METADATA_FILE:-${DOTFILES_CONFIG_DIR:-$HOME}/.dotfiles-install}"
+	local metadata_file="${DOTFILES_INSTALL_METADATA_FILE:-${DOTFILES_HOME:-${XDG_CONFIG_HOME:-$HOME/.config}/dotfiles}/.dotfiles-install}"
 	local line key value
 
 	__dotfiles_install_scope="${DOTFILES_INSTALL_SCOPE:-user}"
-	__dotfiles_install_root="${DOTFILES_CONFIG_DIR:-$HOME}"
+	__dotfiles_install_root="${DOTFILES_HOME:-${XDG_CONFIG_HOME:-$HOME/.config}/dotfiles}"
 	__dotfiles_install_profile_d_dir=''
 	__dotfiles_install_source_url=''
 	__dotfiles_install_source_branch='main'
 	__dotfiles_install_commit=''
-	__dotfiles_install_epoch='0'
 	__dotfiles_install_update_mode='remote'
 
-	[ -r "$metadata_file" ] && [ -f "$metadata_file" ] || return 1
+	if ! { [ -r "$metadata_file" ] && [ -f "$metadata_file" ]; }; then
+		# Legacy location written by the pre-merge dotted layout.
+		metadata_file="$HOME/.dotfiles-install"
+		[ -r "$metadata_file" ] && [ -f "$metadata_file" ] || return 1
+	fi
 
 	while IFS= read -r line || [ -n "$line" ]; do
 		case "$line" in
@@ -80,7 +83,6 @@ function __dotfiles_read_install_metadata {
 			source_url) __dotfiles_install_source_url="$value" ;;
 			source_branch) __dotfiles_install_source_branch="$value" ;;
 			installed_commit) __dotfiles_install_commit="$value" ;;
-			installed_at) __dotfiles_install_epoch="$value" ;;
 			update_mode) __dotfiles_install_update_mode="$value" ;;
 		esac
 	done < "$metadata_file"

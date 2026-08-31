@@ -82,7 +82,7 @@ function dotfiles_update {
 	local clone_url="$canonical_repo_url"
 	local target_branch='main'
 	local install_scope="${DOTFILES_INSTALL_SCOPE:-user}"
-	local install_root="${DOTFILES_CONFIG_DIR:-$HOME}"
+	local install_root="${DOTFILES_HOME:-${XDG_CONFIG_HOME:-$HOME/.config}/dotfiles}"
 	local profile_d_dir="${DOTFILES_SYSTEM_PROFILE_D_DIR:-/etc/profile.d}"
 	local temp_dir workspace_dir bootstrap_script synced_commit
 	local bootstrap_args=(--force)
