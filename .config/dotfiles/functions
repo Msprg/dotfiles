@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-[[ $DOTFILES_DEBUG == "true" ]] && echo "[DOTFILE_DBG: Executing FUNCTIONS]"
+[[ $DOTFILES_DEBUG == "true" ]] && echo "[DOTFILE_DBG: Executing .FUNCTIONS]"
 
 if ! declare -F dotfiles_dbg > /dev/null; then
 	function dotfiles_dbg {
@@ -8,14 +8,29 @@ if ! declare -F dotfiles_dbg > /dev/null; then
 fi
 
 _dotfiles_functions_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_dotfiles_loader_root="$_dotfiles_functions_dir"
+_dotfiles_functions_load_status=0
+# Keep the top-level load path stable while allowing the internal/external
+# files to source ordered modules from their companion `.d/` directories.
 for functions_file in \
 	"${_dotfiles_functions_dir}/functions.internal.bash" \
 	"${_dotfiles_functions_dir}/functions.external.bash"; do
-	if [ -r "$functions_file" ] && [ -f "$functions_file" ]; then
-		source "$functions_file"
-	else
-		dotfiles_dbg ".FUNCTIONS skipping missing file: $functions_file"
+	if [ ! -r "$functions_file" ] || [ ! -f "$functions_file" ]; then
+		printf 'dotfiles: required function loader is missing or unreadable: %s\n' "$functions_file" >&2
+		_dotfiles_functions_load_status=1
+		break
+	fi
+
+	if ! source "$functions_file"; then
+		printf 'dotfiles: failed to source required function loader: %s\n' "$functions_file" >&2
+		_dotfiles_functions_load_status=1
+		break
 	fi
 done
 
-unset functions_file _dotfiles_functions_dir
+unset functions_file _dotfiles_functions_dir _dotfiles_loader_root
+if [ "$_dotfiles_functions_load_status" -ne 0 ]; then
+	unset _dotfiles_functions_load_status
+	return 1
+fi
+unset _dotfiles_functions_load_status
