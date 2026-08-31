@@ -313,6 +313,12 @@ function _install_systemwide() {
 # marker yet) are not lost.
 function migrate_local_additions() {
 	if [ -r ./.config/dotfiles/local_additions ]; then
+		if ! declare -F dotfiles_dbg > /dev/null; then
+			function dotfiles_dbg {
+				[[ "${DOTFILES_DEBUG:-}" == "true" ]] && printf '[DOTFILE_DBG: %s]\n' "$*";
+				return 0;
+			}
+		fi;
 		source ./.config/dotfiles/local_additions;
 		dotfiles_migrate_local_additions;
 	fi;
