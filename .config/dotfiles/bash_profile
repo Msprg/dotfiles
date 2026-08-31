@@ -94,7 +94,9 @@ if [[ "$DOTFILES_AGENT_MODE_ACTIVE" == "true" ]]; then
 	export CLICOLOR=0
 	dotfiles_dbg "Agent-friendly env applied: PAGER=$PAGER GIT_PAGER=$GIT_PAGER MANPAGER=$MANPAGER CLICOLOR=$CLICOLOR"
 
-	# Separate audit trail for agent commands (~/.bash_history_audit_agent).
+	# Separate audit trail for agent commands: <identity>.agent.log in the
+	# shared store on system installs, legacy ~/.bash_history_audit_agent
+	# otherwise (see agent_audit).
 	if [ -r "$DOTFILES_HOME/agent_audit" ] && [ -f "$DOTFILES_HOME/agent_audit" ]; then
 		dotfiles_dbg "Sourcing $DOTFILES_HOME/agent_audit"
 		source "$DOTFILES_HOME/agent_audit"

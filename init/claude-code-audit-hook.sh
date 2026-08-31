@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Claude Code PostToolUse hook: append every Bash tool call to the agent audit
-# log used by $DOTFILES_HOME/agent_audit (default ~/.bash_history_audit_agent).
+# log used by $DOTFILES_HOME/agent_audit (/var/log/dotfiles/audit/
+# <identity>.agent.log on system-scope installs, otherwise the legacy
+# ~/.bash_history_audit_agent).
 #
 # Claude Code executes tool commands in `bash -c` shells that read no rc file,
 # so the dotfiles cannot observe them; this hook receives the command, exit
@@ -15,15 +17,18 @@
 #         {
 #           "matcher": "Bash",
 #           "hooks": [
-#             { "type": "command", "command": "$HOME/dotFiles/init/claude-code-audit-hook.sh" }
+#             { "type": "command", "command": "/usr/local/share/dotfiles/init/claude-code-audit-hook.sh" }
 #           ]
 #         }
 #       ]
 #     }
 #   }
 #
-# Adjust the path if the repo lives elsewhere (see ~/.config/dotfiles/repo_dir).
-# Requires python3 or jq. Never fails the tool call: exits 0 on any error.
+# Bootstrap installs this file to $DOTFILES_HOME/init/ in both scopes: use
+# /usr/local/share/dotfiles/init/... for a system install,
+# $HOME/.config/dotfiles/init/... for a user install (a repo checkout works
+# too). Requires python3 or jq. Never fails the tool call: exits 0 on any
+# error.
 
 set -u
 

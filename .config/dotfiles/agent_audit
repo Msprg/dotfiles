@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 [[ $DOTFILES_DEBUG == "true" ]] && echo "[DOTFILE_DBG: Executing .DOTFILES_AGENT_AUDIT]"
 
-# Lightweight command audit for agent-mode shells (sourced by ~/.bash_profile
-# only when the agent guard is active). Records go to a separate file next to
-# the regular audit log, default ~/.bash_history_audit_agent:
+# Lightweight command audit for agent-mode shells (sourced by the runtime
+# bash_profile only when the agent guard is active). Records go to a separate
+# agent log next to the regular audit log: <identity>.agent.log in the shared
+# store (default /var/log/dotfiles/audit) on system-scope installs, otherwise
+# the legacy ~/.bash_history_audit_agent:
 #
 #   timestamp  user  agent  exit:N  took:D  command
 #
