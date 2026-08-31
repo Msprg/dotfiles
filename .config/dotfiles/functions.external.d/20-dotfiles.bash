@@ -3,7 +3,7 @@
 
 function dotfiles_profile {
 	local requested_profile="$1"
-	local local_features_file="$HOME/.dotfiles_features.local"
+	local local_features_file="${DOTFILES_LOCAL_HOME:-${XDG_CONFIG_HOME:-$HOME/.config}/dotfiles}/features.local"
 	local tmpfile
 
 	case "$requested_profile" in

@@ -169,7 +169,7 @@ function __dotfiles_should_auto_check_updates {
 	local scope="${DOTFILES_FEATURE_DOTFILES_UPDATE_CHECK_SCOPE:-interactive}"
 
 	[[ $- == *i* ]] || return 1
-	[[ "${DOTFILES_FEATURE_DOTFILES_UPDATE_CHECK:-true}" == "true" ]] || return 1
+	[[ "${DOTFILES_FEATURE_DOTFILES_UPDATE_CHECK:-false}" == "true" ]] || return 1
 
 	case "$scope" in
 		ssh)

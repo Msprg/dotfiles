@@ -5,7 +5,7 @@
 # Heavily inspired by @necolas’s prompt: https://github.com/necolas/dotfiles
 # iTerm → Profiles → Text → use 13pt Monaco with 1.1 vertical spacing.
 
-if [[ "${DOTFILES_FEATURE_CUSTOM_PROMPT:-true}" == "true" ]]; then
+if [[ "${DOTFILES_FEATURE_CUSTOM_PROMPT:-false}" == "true" ]]; then
 	if [[ $COLORTERM = gnome-* && $TERM = xterm ]] && infocmp gnome-256color >/dev/null 2>&1; then
 		export TERM='gnome-256color';
 		[[ "$DOTFILES_DEBUG" == "true" ]] && echo "[DOTFILE_DBG: .BASH_PROMPT set TERM=gnome-256color]"
@@ -118,7 +118,7 @@ else
 	ANSI_defaults='\033[0m';
 fi;
 
-if [[ "${DOTFILES_FEATURE_CUSTOM_PROMPT:-true}" != "true" ]]; then
+if [[ "${DOTFILES_FEATURE_CUSTOM_PROMPT:-false}" != "true" ]]; then
 	[[ "$DOTFILES_DEBUG" == "true" ]] && echo "[DOTFILE_DBG: .BASH_PROMPT exiting early without PS1/PS2 override]"
 	return 0
 fi

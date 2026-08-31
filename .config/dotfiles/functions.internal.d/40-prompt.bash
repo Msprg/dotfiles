@@ -41,7 +41,7 @@ function format_duration_us {
 }
 
 function timer_stop {
-	if [[ "${DOTFILES_FEATURE_TRACK_COMMAND_DURATION:-true}" != "true" ]]; then
+	if [[ "${DOTFILES_FEATURE_TRACK_COMMAND_DURATION:-false}" != "true" ]]; then
 		_last_cmd_us=0
 		timer_show='0us'
 		unset timer_start
@@ -75,7 +75,7 @@ __dotfiles_update_state_dir="${XDG_CACHE_HOME:-$HOME/.cache}/dotfiles"
 __dotfiles_update_state_file="$__dotfiles_update_state_dir/update_state"
 __dotfiles_update_check_lock_dir="$__dotfiles_update_state_dir/update_check.lock"
 
-if [[ "${DOTFILES_FEATURE_TRACK_COMMAND_DURATION:-true}" == "true" ]]; then
+if [[ "${DOTFILES_FEATURE_TRACK_COMMAND_DURATION:-false}" == "true" ]]; then
 	function __dotfiles_supports_ps0 {
 		(( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4) ))
 	}
@@ -132,7 +132,7 @@ function do_my_checks {
 	append_bash_history_audit
 	__dotfiles_maybe_show_update_notice_once
 
-	if [[ "${DOTFILES_FEATURE_AUTO_DOT_ENV:-true}" == "true" ]]; then
+	if [[ "${DOTFILES_FEATURE_AUTO_DOT_ENV:-false}" == "true" ]]; then
 		check_for_dot_env
 	fi
 
@@ -151,9 +151,9 @@ function do_my_checks {
 		local c_brightred="${brightred:-$'\033[38;5;196m'}"
 		local c_reset="${reset:-$'\033[0m'}"
 
-		long_threshold_us="${DOTFILES_FEATURE_PROMPT_LONG_COMMAND_US:-100000}"
+		long_threshold_us="${DOTFILES_FEATURE_PROMPT_LONG_COMMAND_US:-750000}"
 		divider_threshold_us="${DOTFILES_FEATURE_PROMPT_DIVIDER_THRESHOLD_US:-100000}"
-		metadata_mode="${DOTFILES_FEATURE_PROMPT_METADATA_MODE:-always}"
+		metadata_mode="${DOTFILES_FEATURE_PROMPT_METADATA_MODE:-never}"
 
 		[[ "$long_threshold_us" =~ ^[0-9]+$ ]] || long_threshold_us=100000
 		[[ "$divider_threshold_us" =~ ^[0-9]+$ ]] || divider_threshold_us=100000
@@ -162,7 +162,7 @@ function do_my_checks {
 			command_is_long='true'
 		fi
 
-		if [[ "${DOTFILES_FEATURE_PROMPT_METADATA:-true}" == "true" ]]; then
+		if [[ "${DOTFILES_FEATURE_PROMPT_METADATA:-false}" == "true" ]]; then
 			case "$metadata_mode" in
 				always)
 					should_show_metadata='true'
@@ -170,18 +170,18 @@ function do_my_checks {
 				smart)
 					if [[ "$command_is_long" == "true" ]]; then
 						should_show_metadata='true'
-					elif [[ "${DOTFILES_FEATURE_PROMPT_SHOW_ON_ERROR:-true}" == "true" && "$last_cmd_exit_code" -ne 0 ]]; then
+					elif [[ "${DOTFILES_FEATURE_PROMPT_SHOW_ON_ERROR:-false}" == "true" && "$last_cmd_exit_code" -ne 0 ]]; then
 						should_show_metadata='true'
 					fi
 					;;
 			esac
 		fi
 
-		if [[ "$should_show_metadata" == "true" && "${DOTFILES_FEATURE_PROMPT_SHOW_EXIT_CODE:-true}" == "true" ]]; then
+		if [[ "$should_show_metadata" == "true" && "${DOTFILES_FEATURE_PROMPT_SHOW_EXIT_CODE:-false}" == "true" ]]; then
 			printf -v combined_buff "%sexit: %-3d" "$combined_buff" "$last_cmd_exit_code"
 		fi
 
-		if [[ "$should_show_metadata" == "true" && "${DOTFILES_FEATURE_PROMPT_SHOW_STATUS_SYMBOL:-true}" == "true" ]]; then
+		if [[ "$should_show_metadata" == "true" && "${DOTFILES_FEATURE_PROMPT_SHOW_STATUS_SYMBOL:-false}" == "true" ]]; then
 			if [ -n "$combined_buff" ]; then
 				combined_buff+=" "
 			fi
@@ -192,7 +192,7 @@ function do_my_checks {
 			fi
 		fi
 
-		if [[ "$should_show_metadata" == "true" && "${DOTFILES_FEATURE_PROMPT_SHOW_DURATION:-true}" == "true" ]]; then
+		if [[ "$should_show_metadata" == "true" && "${DOTFILES_FEATURE_PROMPT_SHOW_DURATION:-false}" == "true" ]]; then
 			if [ -n "$combined_buff" ]; then
 				combined_buff+="  "
 			fi
@@ -202,7 +202,7 @@ function do_my_checks {
 		# Show the divider line after commands that likely produced substantial output.
 		# Exact line counting is not feasible from bash (terminal scrolling makes
 		# cursor-position deltas unreliable), so command duration is used as proxy.
-		if [[ "${DOTFILES_FEATURE_PROMPT_SHOW_DIVIDER:-true}" == "true" ]] && (( _last_cmd_us > divider_threshold_us )); then
+		if [[ "${DOTFILES_FEATURE_PROMPT_SHOW_DIVIDER:-false}" == "true" ]] && (( _last_cmd_us > divider_threshold_us )); then
 			should_show_divider='true'
 		fi
 
@@ -213,7 +213,7 @@ function do_my_checks {
 
 		# The custom prompt already starts with a newline, so avoid adding an
 		# extra blank line between metadata/divider output and PS1 in that mode.
-		if [[ "${DOTFILES_FEATURE_CUSTOM_PROMPT:-true}" == "true" ]]; then
+		if [[ "${DOTFILES_FEATURE_CUSTOM_PROMPT:-false}" == "true" ]]; then
 			prompt_already_adds_newline='true'
 		fi
 
@@ -242,7 +242,7 @@ function do_my_checks {
 		return
 	fi
 
-	if [[ "${DOTFILES_FEATURE_LOCAL_HISTORY:-true}" == "true" ]]; then
+	if [[ "${DOTFILES_FEATURE_LOCAL_HISTORY:-false}" == "true" ]]; then
 		check_for_local_history
 	elif [[ "$DOTFILES_DEBUG" == "true" && "${DOTFILES_DEBUG_PROMPT_VERBOSE:-false}" == "true" ]]; then
 		dotfiles_dbg "do_my_checks skipped check_for_local_history (DOTFILES_FEATURE_LOCAL_HISTORY=false)"
@@ -316,7 +316,7 @@ function remove_prompt_command {
 	dotfiles_dbg ".FUNCTIONS removed do_my_checks from PROMPT_COMMAND -> '${PROMPT_COMMAND:-}'"
 }
 
-if [[ "${DOTFILES_FEATURE_PROMPT_HOOKS:-true}" == "true" ]]; then
+if [[ "${DOTFILES_FEATURE_PROMPT_HOOKS:-false}" == "true" ]]; then
 	add_prompt_command
 else
 	remove_prompt_command
