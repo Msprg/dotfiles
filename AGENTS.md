@@ -3,39 +3,62 @@
 This document highlights behavior and conventions that matter for automation and
 agent work. It is meant to save you from surprises when running commands.
 
+## Install Scopes and Variables
+
+The runtime can be installed in two scopes; the repo keeps it under
+`.config/dotfiles/` (de-dotted names):
+
+| Variable | Meaning |
+| --- | --- |
+| `DOTFILES_HOME` | Runtime root: `/usr/local/share/dotfiles` (system scope, the bootstrap **default**) or `~/.config/dotfiles` (user scope). |
+| `DOTFILES_LOCAL_HOME` | Per-user override dir, **always** `~/.config/dotfiles` (holds `features.local`, `agent_guard.local`, `repo_dir`) — even under a system install. |
+| `DOTFILES_INSTALL_SCOPE` | `system` or `user`; set to `system` by the `/etc/profile.d` hook, defaults to `user`. |
+
+Install metadata (scope, install root, source URL/branch/commit, update mode)
+lives in `$DOTFILES_HOME/.dotfiles-install`; `dotfiles_update` reads it.
+
 ## Entry Points and Load Order
 
-Only the standard rc files plus two private hooks (`~/.systemspecific`,
-`~/.extra`) live in `$HOME`. All other dotfiles live in `$DOTFILES_HOME`
-(default `~/.config/dotfiles`; repo path `.config/dotfiles/`) without leading
-dots: `agent_guard`, `local_additions`, `path_defaults`, `features`, `prompt`,
-`exports`, `functions*`, `aliases/`, `agent_audit`. `~/.path` no longer exists.
+`~/.bash_profile` is a ~10-line stub: it sets `DOTFILES_HOME` and sources
+`$DOTFILES_HOME/bash_profile`, guarded by `_DOTFILES_RUNTIME_LOADED` so the
+runtime loads once per shell. Under a system install, `/etc/profile.d/dotfiles.sh`
+does the same first (with `DOTFILES_INSTALL_SCOPE=system`); whichever entry
+point runs first wins. `~/.bashrc` sources `~/.bash_profile` for interactive
+shells; on Debian-family systems a marker block in `/etc/bash.bashrc` covers
+interactive non-login shells.
 
-The main shell entry point is `~/.bash_profile`, which sources config in this
-order (`$D` = `$DOTFILES_HOME`):
+`$DOTFILES_HOME/bash_profile` then takes one of three paths (`$D` =
+`$DOTFILES_HOME`):
 
-`$D/agent_guard` → `$D/local_additions` → `$D/path_defaults` → `~/.systemspecific` → `$D/features` →
-`$D/prompt` → `$D/exports` → `$D/functions` → `~/.extra` → `$D/aliases/bash/aliases` → PATH de-dup
+- **Full** (default): `$D/agent_guard` → `$D/local_additions` (user scope only) →
+  `$D/path_defaults` → `~/.systemspecific` → `$D/features` → `$D/prompt` →
+  `$D/exports` → `$D/functions` → `~/.extra` → `$D/aliases/bash/aliases` →
+  PATH de-dup. `features` and `functions` are hard-required: a missing or
+  failing file prints an actionable error to stderr and aborts the load.
+- **Safe** (`BASH_SAFE_MODE=true` or `safe_reload`): `path_defaults`,
+  `~/.systemspecific`, `exports` only.
+- **Agent** (see below): `path_defaults` → `~/.systemspecific` → `exports` →
+  `~/.extra`, plus `agent_audit`.
 
 Notes:
-- `.bash_profile` first sources `agent_guard`. When it detects a
-  coding agent / harness (marker variables such as `CLAUDECODE`,
-  `CODEX_SANDBOX*`, `CURSOR_AGENT`, `GEMINI_CLI`, `AGENT=...`) or a
-  non-interactive shell, it takes the **agent load path** instead:
-  `$D/path_defaults` → `~/.systemspecific` → `$D/exports` → `~/.extra`
-  and nothing else. See "Agent Mode" below.
-- `~/.bashrc` and `~/.bash_profile` end with a marker line. At shell start
-  `local_additions` moves anything below it (installer PATH lines,
-  nvm/conda init) into `~/.systemspecific`, which survives bootstrap and is
-  loaded in every mode. `path_defaults` already adds the common
-  tool dirs (`~/.local/bin`, `~/.cargo/bin`, `~/go/bin`, ...), so prefer not
-  appending; if you must, append below the marker and it will be migrated.
-- `.bashrc` only sources `.bash_profile` for interactive shells.
-- If you need custom PATH or private overrides, use `~/.systemspecific`
-  (early) or `~/.extra` (late).
-- Feature toggles and profile defaults live in `$D/features`; optional
-  machine-local overrides can be placed in `$D/features.local`.
-- Safe mode can be entered with `BASH_SAFE_MODE="true"` or `safe_reload`.
+- `agent_guard` runs first in every case. When it detects a coding agent /
+  harness (marker variables such as `CLAUDECODE`, `CODEX_SANDBOX*`,
+  `CURSOR_AGENT`, `GEMINI_CLI`, `AGENT=...`) or a non-interactive shell, the
+  agent load path is taken.
+- Under a **system install** the `/etc/profile.d` hook deliberately has **no
+  interactivity guard**: it runs for all login shells, including the
+  non-interactive `bash -lc` shells agents spawn — which is exactly how those
+  shells get the agent guard and the agent audit.
+- `~/.bashrc` and `~/.bash_profile` end with a marker line. On user-scope
+  installs `local_additions` moves anything below it (installer PATH lines,
+  nvm/conda init) into `~/.systemspecific` at shell start (full/safe paths
+  only, never agent shells). `path_defaults` already adds the common tool dirs
+  (`~/.local/bin`, `~/.cargo/bin`, `~/go/bin`, ...), so prefer not appending;
+  if you must, append below the marker.
+- Custom PATH or private overrides belong in `~/.systemspecific` (early) or
+  `~/.extra` (late). Per-user feature overrides go in
+  `$DOTFILES_LOCAL_HOME/features.local`; guard overrides in
+  `$DOTFILES_LOCAL_HOME/agent_guard.local`.
 
 ## Agent Mode (what you most likely run in)
 
@@ -44,9 +67,11 @@ mode: `DOTFILES_AGENT` is exported (e.g. `claude-code`, `codex`, `cursor`,
 `non-interactive`) and the environment is near-vanilla Bash:
 
 - No aliases, no dotfiles functions, no completions, no custom prompt.
-- No `PROMPT_COMMAND`, `PS0` or DEBUG-trap hooks: no `.env` auto-loading, no
-  per-directory history switching, no history audit, no update notices, no
-  terminal-title escape sequences on stdout.
+- No dotfiles prompt hooks: no `.env` auto-loading, no per-directory history
+  switching, no update notices, no terminal-title escape sequences on stdout.
+  The only hook agent mode installs is the agent-audit recorder: interactive
+  agent shells get a small `PROMPT_COMMAND` entry, `bash -c` shells an EXIT
+  trap (see below). No `PS0` or DEBUG-trap hooks.
 - Default shopt settings (`nocaseglob`, `autocd`, `cdspell`, `globstar` are
   **not** enabled).
 - `PAGER`, `GIT_PAGER`, `MANPAGER` default to `cat`; `CLICOLOR=0`.
@@ -54,10 +79,12 @@ mode: `DOTFILES_AGENT` is exported (e.g. `claude-code`, `codex`, `cursor`,
   loaded (PATH, `EDITOR=nano`, history sizes, private per-machine settings
   and migrated installer lines).
 - Your commands are recorded: `bash -c` invocations (exit code, duration,
-  full command string) and interactive agent prompts go to
-  `~/.bash_history_audit_agent`; Claude Code tool calls are recorded by the
-  optional PostToolUse hook `init/claude-code-audit-hook.sh`. Disable with
-  `DOTFILES_AGENT_AUDIT=false`.
+  full command string, via EXIT trap) and interactive agent prompts (via
+  `PROMPT_COMMAND`) go to the agent audit log —
+  `/var/log/dotfiles/audit/<identity>.agent.log` on system installs, legacy
+  `~/.bash_history_audit_agent` otherwise. Claude Code tool calls are recorded
+  by the optional PostToolUse hook `$DOTFILES_HOME/init/claude-code-audit-hook.sh`.
+  Disable with `DOTFILES_AGENT_AUDIT=false`.
 
 Everything in "Behavior That Affects Automation" below therefore only applies
 when the guard is disabled (`DOTFILES_AGENT_GUARD=false`), the agent is listed
@@ -67,48 +94,62 @@ missing aliases/functions by sourcing `~/.bash_profile` with the guard
 disabled; use `command`/full paths instead.
 
 Guard knobs live in `agent_guard` (env or
-`$D/agent_guard.local`): `DOTFILES_AGENT_GUARD`, `DOTFILES_AGENT_MODE`,
-`DOTFILES_AGENT_GUARD_NONINTERACTIVE`, `DOTFILES_AGENT_GUARD_EXTRA_MARKERS`,
-`DOTFILES_AGENT_GUARD_ALLOW_FULL`. Trace decisions with `DOTFILES_DEBUG=true`.
+`$DOTFILES_LOCAL_HOME/agent_guard.local`): `DOTFILES_AGENT_GUARD`,
+`DOTFILES_AGENT_MODE`, `DOTFILES_AGENT_GUARD_NONINTERACTIVE`,
+`DOTFILES_AGENT_GUARD_EXTRA_MARKERS`, `DOTFILES_AGENT_GUARD_ALLOW_FULL`.
+Trace decisions with `DOTFILES_DEBUG=true`.
 
 ## Behavior That Affects Automation
 
-- **Auto-loads `.env`**: `.functions` loads/unloads `.env` when directory
-  context changes and also reloads when the active `.env` file is edited. This
-  can change environment variables unexpectedly.
-- **Async dotfiles update checks**: interactive shells may start a background
-  Git check (throttled by feature flags), and print a one-time-per-session
-  notice when updates are available.
-- **Per-directory Bash history**: if `.bash_history` exists in a directory, it
-  becomes the active history file.
-- **History audit log**: commands are also appended to `.bash_history_audit`
-  alongside timestamp, user, exit code, and command duration (microseconds).
-  The `user` field is sourced from `BASH_HISTORY_USERNAME` when present, which
-  is expected to be injected by SSH via `authorized_keys`
-  `environment="BASH_HISTORY_USERNAME=..."` entries. Preserve it across
-  `sudo -i` and `sudo su` with
-  `Defaults env_keep += "BASH_HISTORY_USERNAME"` in
-  `/etc/sudoers.d/` (sample: `init/dotfiles-bash-history.sudoers`). Agent
-  commands go to the separate `.bash_history_audit_agent` (see "Agent Mode");
-  read it with `audit_bash_history -a`.
-  `su -` / `sudo su -` are not covered because login-style `su` resets the
-  environment. Use `audit_bash_history [N]` to inspect records.
+The default profile is **minimal**: prompt hooks, `.env` auto-loading,
+per-directory history and update checks are all **off** unless a user opted
+into `light`/`full`. The command audit is on in every profile.
+
+- **History audit log** (always on by default, all profiles): every prompt
+  cycle of a full-mode shell appends a record —
+  `timestamp  user  exit:N  took:D  command` (fixed-width columns, not TSV) —
+  to `/var/log/dotfiles/audit/<identity>.log` (system scope; files 0600, dir
+  1733) or `~/.bash_history_audit` (user scope). `identity`/`user` come from
+  `BASH_HISTORY_USERNAME` when set (sanitized; intended to be injected by SSH
+  `authorized_keys` `environment=` entries), else the account name. Preserve
+  it across `sudo -i` / `sudo su` with
+  `Defaults env_keep += "BASH_HISTORY_USERNAME"` in `/etc/sudoers.d/`
+  (sample: `$DOTFILES_HOME/init/dotfiles-bash-history.sudoers`); login-style
+  `su -` resets the environment and is not covered. A DEBUG-trap assist audits
+  consecutive re-runs (which `HISTCONTROL=ignoreboth` hides from history) with
+  fresh exit codes; a leading space still opts a command out. Inspect with
+  `audit_bash_history [N|-f]`, agent log with `-a`, merged all-users view
+  (root/sudo only) with `--all`. Opt out per user via
+  `DOTFILES_FEATURE_HISTORY_AUDIT=false` in `features.local`.
+- **Auto-loads `.env`** (`light`/`full` profiles): the functions runtime
+  loads/unloads `.env` when directory context changes and reloads when the
+  active `.env` file is edited. This can change environment variables
+  unexpectedly.
+- **Per-directory Bash history** (`light`/`full`): if `.bash_history` exists in
+  a directory, it becomes the active history file. The audit log location is
+  decoupled from this and never moves.
+- **Async dotfiles update checks** (`full` profile, user scope only):
+  interactive shells may start a background Git check and print a
+  one-time-per-session notice when updates are available.
 - **Prompt hooks**: `PROMPT_COMMAND` can run checks after every command (exit
-  status, timing, env/history checks), depending on feature flags.
+  status, timing, env/history checks) in `light`/`full`; in `minimal` only a
+  lean audit hook is installed.
 - **Debug**: set `DOTFILES_DEBUG="true"` to log load steps.
 - **Safe mode**: set `BASH_SAFE_MODE="true"` (or run `safe_reload`) to start a
-  minimal shell that only loads `path_defaults`, `~/.systemspecific` and `exports`. This skips the
-  prompt, functions, aliases, completions, and PROMPT_COMMAND hooks. Use
-  `reload` from safe mode to return to a full shell.
-- **Agent mode**: entered automatically by `agent_guard` (see
-  above); `reload` from an interactive agent shell returns to a full shell
-  with the guard disabled for that shell only.
+  minimal shell that only loads `path_defaults`, `~/.systemspecific` and
+  `exports`. Use `reload` from safe mode to return to a full shell.
+- **Agent mode**: entered automatically by `agent_guard` (see above); `reload`
+  from an interactive agent shell returns to a full shell with the guard
+  disabled for that shell only.
 
 ## Feature Profiles and Hooks
 
-- Profiles are selected with `DOTFILES_FEATURE_PROFILE` (`full`, `light`,
-  `minimal`) and resolved in `$D/features`, then overridden by
-  `$D/features.local`.
+- `minimal` (default) / `light` / `full`. Precedence: environment
+  `DOTFILES_FEATURE_PROFILE` (validated) >
+  `$DOTFILES_LOCAL_HOME/features.local` > `minimal`.
+- Individual feature flags are **not** read from the environment — only the
+  profile is; per-flag overrides belong in `features.local`.
+- `DOTFILES_FEATURE_HISTORY_AUDIT` defaults to `true` in **all** profiles.
 - Helper command: `dotfiles_profile [show|full|light|minimal|reset]`.
 - Command-duration start hook method is controlled by
   `DOTFILES_FEATURE_TRACK_COMMAND_DURATION_METHOD` (`auto`, `ps0`, `debug`).
@@ -119,26 +160,20 @@ Guard knobs live in `agent_guard` (env or
 Aliases are modular and live under `$D/aliases/bash/`. The file
 `aliases/bash/aliases` loads category-specific alias files (git, docker, etc.).
 
-Function loading is split:
-- `functions` is a loader.
-- `functions.internal.bash` contains internal runtime hooks/helpers.
-- `functions.external.bash` contains user-facing interactive function definitions.
+Function loading is a hard-required manifest chain — a missing or broken
+module produces an actionable stderr message and a non-zero return:
 
-High-impact functions in `functions.external.bash`:
-- `mkd` (mkdir + cd), `fs` (file/dir size)
-- `pull` (smart git pull based on tracked branch)
-- `f` (grep with ignore rules) and `q` (find with `.qignore`)
-- `gfc` (git fetch/checkout/reset to origin branch)
-- `vimp` (vim + optional line number parsing)
-- `hibp` (Have I Been Pwned password check)
-- `dotfiles_profile` (switch feature profiles)
-- `dotfiles_update` (update dotfiles + reload shell)
-- `audit_bash_history` (inspect command audit log)
+- `functions` (loader) → `functions.internal.bash` → modules in
+  `functions.internal.d/`: `00-common`, `10-history` (audit writer),
+  `20-env`, `30-update`, `40-prompt`.
+- then `functions.external.bash` → modules in `functions.external.d/`:
+  `10-core` (incl. `audit_bash_history`), `20-dotfiles` (`dotfiles_profile`,
+  `dotfiles_update`, `reload` helpers), `30-filesystem`, `40-git`,
+  `50-network-media`.
 
-High-impact reload helpers in `functions.external.bash`:
-- `reload` (full login shell reload)
-- `safe_reload` (minimal/safe shell reload)
-- `debug_reload` (reload with `DOTFILES_DEBUG=true`)
+High-impact functions: `mkd`, `fs`, `pull`, `f`/`q`, `gfc`, `vimp`, `hibp`,
+`dotfiles_profile`, `dotfiles_update`, `audit_bash_history`, and the reload
+helpers `reload` / `safe_reload` / `debug_reload`.
 
 ## Editors and Defaults
 
@@ -154,39 +189,57 @@ by the bootstrap script unless renamed.
 
 ## Install and Update
 
-Use `source bootstrap.sh` from the repo root to install or update dotfiles.
-It rsyncs to `$HOME` (repo layout mirrors `$HOME`, so `.config/dotfiles/` lands
-in `~/.config/dotfiles/`) while excluding `.disabled`, scripts, docs, `init/`
-and repo metadata. It also migrates old flat-layout installs (moves `*.local`
-overrides, removes the old repo-owned dotfiles from `$HOME`).
-Use `set -- -f; source bootstrap.sh` to skip confirmation.
-Bootstrap also attempts to install `bash-completion` when no loader script is
-detected.
+`bash bootstrap.sh [--system|--user] [--migrate-user] [--force|-f] [--help]`
+(may also be sourced). **`--system` is the default**: runtime + `init/` +
+metadata to `/usr/local/share/dotfiles`, hook to `/etc/profile.d/dotfiles.sh`,
+audit dir `/var/log/dotfiles/audit` (root:root, mode 1733). `--user` rsyncs
+the home stubs into `$HOME` and the runtime into `~/.config/dotfiles`, and
+writes `$DOTFILES_LOCAL_HOME/repo_dir`. `--migrate-user` (system scope only)
+backs up a previous per-user install — only files verified dotfiles-owned —
+to `~/.dotfiles-user-install-backup-<timestamp>` and restores `/etc/skel` rc
+files; `~/.extra`, `~/.systemspecific` and `*.local` files are never touched.
+Bootstrap does **not** `git pull`; pull manually or use `dotfiles_update`.
+Legacy flat/dotted layouts are migrated automatically on user-scope installs.
 
-Bootstrap update-related env knobs:
-- `DOTFILES_BOOTSTRAP_NO_SOURCE_PROFILE=true` skips `source ~/.bash_profile`.
-- `DOTFILES_BOOTSTRAP_PERSIST_REPO_DIR=true|false` controls whether
-  `$D/repo_dir` is written.
+Knobs: `DOTFILES_SYSTEM_INSTALL_ROOT`, `DOTFILES_SYSTEM_PROFILE_D_DIR`,
+`DOTFILES_SYSTEM_AUDIT_DIR`, `DOTFILES_SYSTEM_BASHRC_FILE`,
+`DOTFILES_BOOTSTRAP_NO_SUDO`, `DOTFILES_BOOTSTRAP_SKIP_COMPLETION`,
+`DOTFILES_BOOTSTRAP_NO_SOURCE_PROFILE`, `DOTFILES_BOOTSTRAP_PERSIST_REPO_DIR`,
+`DOTFILES_BOOTSTRAP_REPO_DIR_VALUE`.
 
-Dotfiles repo resolution order used by update checks and `dotfiles_update`:
-1. `DOTFILES_REPO_DIR` (if set and valid git repo)
-2. `$D/repo_dir` (legacy `~/.dotfiles_repo_dir` still honoured)
+`dotfiles_update [--remote]` reads `$DOTFILES_HOME/.dotfiles-install`, clones
+the recorded source fresh and re-runs bootstrap with the installed scope. It
+refuses to replace `update_mode=manual` installs (modified/non-tracking
+checkouts) unless `--remote` is given.
+
+Dotfiles repo resolution order used by update checks (user scope):
+1. `DOTFILES_REPO_DIR` (if set and a valid git repo)
+2. `$DOTFILES_LOCAL_HOME/repo_dir` (legacy `~/.dotfiles_repo_dir` still honoured)
 3. `~/dotFiles`
 4. `~/dotfiles`
+
+## Runtime Validation
+
+`bash tests/bash-runtime.sh` — 23 checks (syntax, loaders, profiles, bootstrap
+scopes, migration safety, update pipeline, audit writer/viewer), fixture-based,
+no root required. Run it after changing anything under `.config/dotfiles/`,
+`bootstrap.sh` or the rc stubs.
 
 ## Other Notable Files
 
 - `$D/agent_guard`: agent / non-interactive detection sourced first by
-  `.bash_profile`; `agent_guard.local.example` documents overrides
-- `$D/agent_audit`: agent-mode command recorder (separate audit file)
+  `bash_profile`; `agent_guard.local.example` documents overrides
+- `$D/agent_audit`: agent-mode command recorder (separate audit log)
 - `$D/path_defaults`: well-known tool directories added to PATH when present
 - `$D/local_additions`: moves installer appends from below the rc markers
-  (and a legacy `~/.path`) into `~/.systemspecific` at shell start
-- `init/claude-code-audit-hook.sh`: Claude Code PostToolUse hook feeding the
-  agent audit log (repo-only, not rsynced)
+  (and a legacy `~/.path`) into `~/.systemspecific` at shell start (user scope)
+- `$D/init/claude-code-audit-hook.sh`: Claude Code PostToolUse hook feeding the
+  agent audit log (installed with the runtime by bootstrap)
+- `$D/init/dotfiles-bash-history.sudoers`: sudoers `env_keep` sample for
+  `BASH_HISTORY_USERNAME`
 - `.inputrc`: readline completion and history settings
 - `.tmux.conf`: tmux prefix and keybindings
 - `.curlrc` / `.wgetrc`: networking defaults
 - `.macos.disabled` / `.osx.disabled`: macOS settings (not applied on Linux)
 - `$D/aliases/bash/git.aliases.bash`: Git alias source used by dynamic alias
-  completion registration in `.bash_profile`
+  completion registration in `bash_profile`

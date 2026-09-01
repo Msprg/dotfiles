@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 [[ $DOTFILES_DEBUG == "true" ]] && echo "[DOTFILE_DBG: Executing .DOTFILES_AGENT_AUDIT]"
 
-# Lightweight command audit for agent-mode shells (sourced by ~/.bash_profile
-# only when the agent guard is active). Records go to a separate file next to
-# the regular audit log, default ~/.bash_history_audit_agent:
+# Lightweight command audit for agent-mode shells (sourced by the runtime
+# bash_profile only when the agent guard is active). Records go to a separate
+# agent log next to the regular audit log: <identity>.agent.log in the shared
+# store (default /var/log/dotfiles/audit) on system-scope installs, otherwise
+# the legacy ~/.bash_history_audit_agent:
 #
 #   timestamp  user  agent  exit:N  took:D  command
 #
@@ -34,6 +36,48 @@ function __dotfiles_agent_audit_enabled {
 	esac
 }
 
+# Where agent audit records go. Keep in sync with
+# __dotfiles_audit_resolve_file in functions.internal.d/10-history.bash —
+# agent shells load neither the functions runtime nor features, so this file
+# carries its own copy of the chain: explicit override, then the shared
+# per-user store (/var/log/dotfiles/audit, dir 1733/files 0600), then the
+# account-named file, then the legacy $HOME file.
+function __dotfiles_agent_audit_resolve_file {
+	local override="${DOTFILES_AGENT_AUDIT_FILE:-}"
+	local legacy="$HOME/.bash_history_audit_agent"
+	local dir candidate account_candidate identity
+
+	if [ -n "$override" ]; then
+		printf '%s\n' "$override"
+		return 0
+	fi
+
+	dir="${DOTFILES_AUDIT_DIR:-}"
+	if [ -z "$dir" ] && [ "${DOTFILES_INSTALL_SCOPE:-user}" = 'system' ]; then
+		dir='/var/log/dotfiles/audit'
+	fi
+
+	if [ -n "$dir" ] && [ -d "$dir" ] && [ -x "$dir" ]; then
+		identity="${BASH_HISTORY_USERNAME:-}"
+		if [ -z "$identity" ] || ! [[ "$identity" =~ ^[A-Za-z0-9_@][A-Za-z0-9._@-]{0,63}$ ]]; then
+			identity="$(id -un)"
+		fi
+		candidate="$dir/${identity}.agent.log"
+		if [ -w "$candidate" ] || { [ ! -e "$candidate" ] && [ -w "$dir" ]; }; then
+			printf '%s\n' "$candidate"
+			return 0
+		fi
+		account_candidate="$dir/$(id -un).agent.log"
+		if [ "$account_candidate" != "$candidate" ] \
+			&& { [ -w "$account_candidate" ] || { [ ! -e "$account_candidate" ] && [ -w "$dir" ]; }; }; then
+			printf '%s\n' "$account_candidate"
+			return 0
+		fi
+	fi
+
+	printf '%s\n' "$legacy"
+}
+
 function __dotfiles_agent_audit_now_us {
 	local now
 	if [ -n "${EPOCHREALTIME:-}" ]; then
@@ -46,19 +90,40 @@ function __dotfiles_agent_audit_now_us {
 }
 
 function __dotfiles_agent_audit_format_duration {
-	local us="${1:-0}" s tenths m
-	[[ "$us" =~ ^[0-9]+$ ]] || { printf '%s\n' '-'; return; }
-	if (( us < 1000 )); then
-		printf '%dus\n' "$us"
-	elif (( us < 1000000 )); then
-		printf '%dms\n' "$((us / 1000))"
-	elif (( us < 60000000 )); then
-		s=$((us / 1000000)); tenths=$(((us / 100000) % 10))
-		printf '%d.%ds\n' "$s" "$tenths"
-	else
-		m=$((us / 60000000)); s=$(((us / 1000000) % 60))
-		printf '%dm%02ds\n' "$m" "$s"
+	# Self-contained copy of format_duration_us (functions.internal.d/
+	# 40-prompt.bash) so agent and interactive audit logs stay comparable;
+	# keep the two in sync. Non-numeric input renders as '-'.
+	local delta_us="${1:-0}"
+	local us ms s m h duration_display
+
+	if ! [[ "$delta_us" =~ ^[0-9]+$ ]]; then
+		printf '%s\n' '-'
+		return
 	fi
+
+	us=$((delta_us % 1000))
+	ms=$(((delta_us / 1000) % 1000))
+	s=$(((delta_us / 1000000) % 60))
+	m=$(((delta_us / 60000000) % 60))
+	h=$((delta_us / 3600000000))
+
+	if ((h > 0)); then
+		duration_display=${h}h${m}m
+	elif ((m > 0)); then
+		duration_display=${m}m${s}s
+	elif ((s >= 10)); then
+		duration_display=${s}.$((ms / 100))s
+	elif ((s > 0)); then
+		duration_display=${s}.$(printf %03d "$ms")s
+	elif ((ms >= 100)); then
+		duration_display=${ms}ms
+	elif ((ms > 0)); then
+		duration_display=${ms}.$((us / 100))ms
+	else
+		duration_display=${us}us
+	fi
+
+	printf '%s\n' "$duration_display"
 }
 
 # __dotfiles_agent_audit_write <exit_code> <duration_us|-> <command>
@@ -69,7 +134,7 @@ function __dotfiles_agent_audit_write {
 
 	[ -n "$command_raw" ] || return 0
 
-	audit_file="${DOTFILES_AGENT_AUDIT_FILE:-$HOME/.bash_history_audit_agent}"
+	audit_file="${__dotfiles_agent_audit_file_resolved:-$(__dotfiles_agent_audit_resolve_file)}"
 	audit_dir="${audit_file%/*}"
 	[ "$audit_dir" = "$audit_file" ] && audit_dir='.'
 	mkdir -p "$audit_dir" 2> /dev/null || return 0
@@ -130,14 +195,16 @@ elif [ -n "${BASH_EXECUTION_STRING+x}" ] && [[ $- != *i* ]]; then
 		# calls never read rc files. Audited via init/claude-code-audit-hook.sh.
 		dotfiles_dbg "Agent audit: skipping claude-code snapshot shell"
 	else
+		__dotfiles_agent_audit_file_resolved="$(__dotfiles_agent_audit_resolve_file)"
 		__dotfiles_agent_audit_start_us="$(__dotfiles_agent_audit_now_us)"
 		trap '__dotfiles_agent_audit_on_exit' EXIT
-		dotfiles_dbg "Agent audit: EXIT-trap recorder armed for bash -c invocation"
+		dotfiles_dbg "Agent audit: EXIT-trap recorder armed for bash -c invocation -> ${__dotfiles_agent_audit_file_resolved}"
 	fi
 elif [[ $- == *i* ]]; then
+	__dotfiles_agent_audit_file_resolved="$(__dotfiles_agent_audit_resolve_file)"
 	__dotfiles_agent_audit_last_histcmd="${HISTCMD:-}"
 	PROMPT_COMMAND="__dotfiles_agent_audit_prompt${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
-	dotfiles_dbg "Agent audit: PROMPT_COMMAND recorder installed"
+	dotfiles_dbg "Agent audit: PROMPT_COMMAND recorder installed -> ${__dotfiles_agent_audit_file_resolved}"
 else
 	dotfiles_dbg "Agent audit: non-interactive shell without -c string; not recorded"
 fi
