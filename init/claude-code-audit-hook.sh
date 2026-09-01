@@ -37,6 +37,47 @@ set -u
 # then the shared per-user store, then the legacy $HOME file. The hook runs
 # with Claude Code's environment, which may not carry BASH_HISTORY_USERNAME;
 # id -un covers that.
+# Login-session identity map (keep in sync with
+# .config/dotfiles/functions.internal.d/10-history.bash): recovers the SSH-key
+# identity when the shell chain scrubbed BASH_HISTORY_USERNAME (su -).
+audit_session_id() {
+	local sid=''
+	if [ -n "${DOTFILES_AUDIT_SESSION_ID:-}" ]; then
+		sid="$DOTFILES_AUDIT_SESSION_ID"
+	elif [ -r /proc/self/sessionid ]; then
+		IFS= read -r sid < /proc/self/sessionid 2> /dev/null
+	fi
+	case "$sid" in '' | *[!0-9]* | 4294967295) return 1 ;; esac
+	printf '%s\n' "$sid"
+}
+
+audit_identity() {
+	local identity="${BASH_HISTORY_USERNAME:-}" sid dir file recovered
+	local re='^[A-Za-z0-9_@][A-Za-z0-9._@-]{0,63}$'
+	dir="${DOTFILES_AUDIT_SESSION_DIR:-/run/dotfiles-audit/sessions}"
+	if [ -n "$identity" ] && [[ "$identity" =~ $re ]]; then
+		if sid="$(audit_session_id)" && [ -d "$dir" ] && [ -w "$dir" ]; then
+			file="$dir/$sid"
+			if [ ! -r "$file" ] || [ "$(cat "$file" 2> /dev/null)" != "$identity" ]; then
+				( umask 077; printf '%s\n' "$identity" > "$file" ) 2> /dev/null || true
+			fi
+		fi
+		printf '%s\n' "$identity"
+		return 0
+	fi
+	if sid="$(audit_session_id)"; then
+		file="$dir/$sid"
+		if [ -r "$file" ]; then
+			IFS= read -r recovered < "$file" 2> /dev/null
+			if [ -n "$recovered" ] && [[ "$recovered" =~ $re ]]; then
+				printf '%s\n' "$recovered"
+				return 0
+			fi
+		fi
+	fi
+	id -un
+}
+
 resolve_audit_file() {
 	local override="${DOTFILES_AGENT_AUDIT_FILE:-}"
 	local legacy="$HOME/.bash_history_audit_agent"
@@ -58,10 +99,7 @@ resolve_audit_file() {
 	fi
 
 	if [ -n "$dir" ] && [ -d "$dir" ] && [ -x "$dir" ]; then
-		identity="${BASH_HISTORY_USERNAME:-}"
-		if [ -z "$identity" ] || ! [[ "$identity" =~ ^[A-Za-z0-9_@][A-Za-z0-9._@-]{0,63}$ ]]; then
-			identity="$(id -un)"
-		fi
+		identity="$(audit_identity)"
 		candidate="$dir/${identity}.agent.log"
 		if [ -w "$candidate" ] || { [ ! -e "$candidate" ] && [ -w "$dir" ]; }; then
 			printf '%s\n' "$candidate"
@@ -140,7 +178,7 @@ if [ ! -e "$audit_file" ]; then
 fi
 
 timestamp="$(date '+%Y-%m-%dT%H:%M:%S%z')"
-history_user="${BASH_HISTORY_USERNAME:-${USER:-unknown}}"
+history_user="$(audit_identity)"
 # Strip control chars (esp. newlines): BASH_HISTORY_USERNAME is
 # attacker-influenceable and must not forge audit records.
 history_user="${history_user//[![:print:]]/}"

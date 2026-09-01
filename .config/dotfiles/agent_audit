@@ -42,6 +42,47 @@ function __dotfiles_agent_audit_enabled {
 # carries its own copy of the chain: explicit override, then the shared
 # per-user store (/var/log/dotfiles/audit, dir 1733/files 0600), then the
 # account-named file, then the legacy $HOME file.
+# Login-session identity map (keep in sync with
+# functions.internal.d/10-history.bash): lets the SSH-key identity follow an
+# agent across `su -`/`sudo su -`, which scrub BASH_HISTORY_USERNAME.
+function __dotfiles_agent_audit_session_id {
+	local sid=''
+	if [ -n "${DOTFILES_AUDIT_SESSION_ID:-}" ]; then
+		sid="$DOTFILES_AUDIT_SESSION_ID"
+	elif [ -r /proc/self/sessionid ]; then
+		IFS= read -r sid < /proc/self/sessionid 2> /dev/null
+	fi
+	case "$sid" in '' | *[!0-9]* | 4294967295) return 1 ;; esac
+	printf '%s\n' "$sid"
+}
+
+function __dotfiles_agent_audit_identity {
+	local identity="${BASH_HISTORY_USERNAME:-}" sid dir file recovered
+	local re='^[A-Za-z0-9_@][A-Za-z0-9._@-]{0,63}$'
+	dir="${DOTFILES_AUDIT_SESSION_DIR:-/run/dotfiles-audit/sessions}"
+	if [ -n "$identity" ] && [[ "$identity" =~ $re ]]; then
+		if sid="$(__dotfiles_agent_audit_session_id)" && [ -d "$dir" ] && [ -w "$dir" ]; then
+			file="$dir/$sid"
+			if [ ! -r "$file" ] || [ "$(cat "$file" 2> /dev/null)" != "$identity" ]; then
+				( umask 077; printf '%s\n' "$identity" > "$file" ) 2> /dev/null || true
+			fi
+		fi
+		printf '%s\n' "$identity"
+		return 0
+	fi
+	if sid="$(__dotfiles_agent_audit_session_id)"; then
+		file="$dir/$sid"
+		if [ -r "$file" ]; then
+			IFS= read -r recovered < "$file" 2> /dev/null
+			if [ -n "$recovered" ] && [[ "$recovered" =~ $re ]]; then
+				printf '%s\n' "$recovered"
+				return 0
+			fi
+		fi
+	fi
+	id -un
+}
+
 function __dotfiles_agent_audit_resolve_file {
 	local override="${DOTFILES_AGENT_AUDIT_FILE:-}"
 	local legacy="$HOME/.bash_history_audit_agent"
@@ -58,10 +99,7 @@ function __dotfiles_agent_audit_resolve_file {
 	fi
 
 	if [ -n "$dir" ] && [ -d "$dir" ] && [ -x "$dir" ]; then
-		identity="${BASH_HISTORY_USERNAME:-}"
-		if [ -z "$identity" ] || ! [[ "$identity" =~ ^[A-Za-z0-9_@][A-Za-z0-9._@-]{0,63}$ ]]; then
-			identity="$(id -un)"
-		fi
+		identity="$(__dotfiles_agent_audit_identity)"
 		candidate="$dir/${identity}.agent.log"
 		if [ -w "$candidate" ] || { [ ! -e "$candidate" ] && [ -w "$dir" ]; }; then
 			printf '%s\n' "$candidate"
@@ -159,7 +197,7 @@ function __dotfiles_agent_audit_write {
 	fi
 
 	timestamp="$(date '+%Y-%m-%dT%H:%M:%S%z')"
-	history_user="${BASH_HISTORY_USERNAME:-${USER:-unknown}}"
+	history_user="$(__dotfiles_agent_audit_identity)"
 	# Strip control chars (esp. newlines): BASH_HISTORY_USERNAME is
 	# attacker-influenceable and must not forge audit records.
 	history_user="${history_user//[![:print:]]/}"

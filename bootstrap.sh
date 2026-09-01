@@ -263,6 +263,59 @@ function _install_audit_dir() {
 	fi;
 }
 
+# Login-session identity map: a tmpfs dir that lets the SSH-key identity follow
+# a user across `su -`/`sudo su -` (see .config/dotfiles/functions.internal.d/
+# 10-history.bash). Installs a tmpfiles.d rule so the dir is recreated on every
+# boot (it MUST NOT persist: audit session ids reset after a reboot), and
+# creates it now for the running boot.
+function _install_audit_session() {
+	local session_dir="${DOTFILES_SYSTEM_SESSION_DIR:-/run/dotfiles-audit/sessions}";
+	local session_parent tmpfiles_dir tmpfiles_src;
+	session_parent="$(dirname "$session_dir")";
+	tmpfiles_dir="${DOTFILES_SYSTEM_TMPFILES_DIR:-/etc/tmpfiles.d}";
+	tmpfiles_src="$DOTFILES_BOOTSTRAP_SOURCE_DIR/init/dotfiles-audit.tmpfiles.conf";
+
+	if _is_true "${DOTFILES_BOOTSTRAP_NO_SUDO:-false}" && [ "$EUID" -ne 0 ]; then
+		install -d -m 0755 "$session_parent" && install -d -m 1733 "$session_dir";
+		return 0;
+	fi;
+
+	if [ -r "$tmpfiles_src" ]; then
+		_run_with_privileges install -d -m 0755 "$tmpfiles_dir";
+		_run_with_privileges install -m 0644 "$tmpfiles_src" "$tmpfiles_dir/dotfiles-audit.conf";
+		if _command_exists systemd-tmpfiles; then
+			_run_with_privileges systemd-tmpfiles --create "$tmpfiles_dir/dotfiles-audit.conf" 2> /dev/null || true;
+		fi;
+	fi;
+	# Ensure it exists for the current boot even without systemd-tmpfiles.
+	_run_with_privileges install -d -m 0755 -o root -g root "$session_parent" \
+		&& _run_with_privileges install -d -m 1733 -o root -g root "$session_dir";
+}
+
+# Preserve BASH_HISTORY_USERNAME across the sudo family (env_keep). Installed
+# only after `visudo -c` validates it — a bad sudoers file can lock out sudo.
+# env_keep of a single benign variable grants no privileges.
+function _install_audit_sudoers() {
+	local sudoers_src="$DOTFILES_BOOTSTRAP_SOURCE_DIR/init/dotfiles-bash-history.sudoers";
+	local sudoers_dst="${DOTFILES_SYSTEM_SUDOERS_DIR:-/etc/sudoers.d}/dotfiles-bash-history";
+
+	[ -r "$sudoers_src" ] || return 0;
+	if _is_true "${DOTFILES_BOOTSTRAP_NO_SUDO:-false}" && [ "$EUID" -ne 0 ]; then
+		return 0;  # fixture run: do not touch a real sudoers dir
+	fi;
+	if ! _command_exists visudo; then
+		echo "NOTE: visudo not found; skipping sudoers install. Add manually:" >&2;
+		echo "      install -m 0440 '$sudoers_src' '$sudoers_dst'" >&2;
+		return 0;
+	fi;
+	if _run_with_privileges visudo -c -f "$sudoers_src" > /dev/null 2>&1; then
+		_run_with_privileges install -m 0440 -o root -g root "$sudoers_src" "$sudoers_dst" \
+			&& echo "Installed sudoers env_keep for BASH_HISTORY_USERNAME at $sudoers_dst.";
+	else
+		echo "WARNING: $sudoers_src failed visudo validation; not installed." >&2;
+	fi;
+}
+
 # Sync the runtime directory (repo .config/dotfiles/ + init/) into a managed
 # root. --delete keeps the root canonical; per-user state that may live in a
 # user-scope root (features.local, agent_guard.local, repo_dir,
@@ -312,7 +365,9 @@ function _install_systemwide() {
 		&& _write_install_metadata "$install_root/.dotfiles-install" 'system' "$install_root" \
 		&& _install_system_profile_hook "$install_root" "$profile_d_dir" \
 		&& _install_system_bashrc_hook "$profile_d_dir" \
-		&& _install_audit_dir;
+		&& _install_audit_dir \
+		&& _install_audit_session \
+		&& _install_audit_sudoers;
 }
 
 # Installer appends below the rc markers (and a legacy ~/.path) are normally
@@ -673,7 +728,8 @@ fi;
 unset -f _command_exists _is_true _run_with_privileges _has_bash_completion_loader \
 	_install_bash_completion ensure_bash_completion _dotfiles_source_metadata \
 	_write_install_metadata _install_system_profile_hook _install_system_bashrc_hook \
-	_install_audit_dir _rsync_runtime _install_systemwide migrate_local_additions \
+	_install_audit_dir _install_audit_session _install_audit_sudoers _rsync_runtime \
+	_install_systemwide migrate_local_additions \
 	migrate_legacy_layout persist_dotfiles_repo_dir _install_user \
 	_legacy_user_install_detected _migrate_legacy_user_install _show_bootstrap_help \
 	_dotfiles_migration_home _dotfiles_migration_user 2> /dev/null;

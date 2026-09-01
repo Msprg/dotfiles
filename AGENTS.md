@@ -111,11 +111,17 @@ into `light`/`full`. The command audit is on in every profile.
   to `/var/log/dotfiles/audit/<identity>.log` (system scope; files 0600, dir
   1733) or `~/.bash_history_audit` (user scope). `identity`/`user` come from
   `BASH_HISTORY_USERNAME` when set (sanitized; intended to be injected by SSH
-  `authorized_keys` `environment=` entries), else the account name. Preserve
-  it across `sudo -i` / `sudo su` with
-  `Defaults env_keep += "BASH_HISTORY_USERNAME"` in `/etc/sudoers.d/`
-  (sample: `$DOTFILES_HOME/init/dotfiles-bash-history.sudoers`); login-style
-  `su -` resets the environment and is not covered. A DEBUG-trap assist audits
+  `authorized_keys` `environment=` entries), else the account name. The identity
+  follows a user across privilege escalation two ways, both installed by a
+  system-scope bootstrap: `Defaults env_keep += "BASH_HISTORY_USERNAME"` in
+  `/etc/sudoers.d/` covers the `sudo` family, and a login-session map under
+  `/run/dotfiles-audit/sessions/` (keyed on the immutable kernel audit session
+  id `/proc/self/sessionid`, recreated each boot by a `tmpfiles.d` rule) covers
+  env-scrubbing login shells (`su -`, `sudo su -`) that `env_keep` cannot. SSH
+  injection of `BASH_HISTORY_USERNAME` needs
+  `PermitUserEnvironment BASH_HISTORY_USERNAME` (sample drop-in
+  `$DOTFILES_HOME/init/dotfiles-audit-sshd.conf`; admin-installed, not touched
+  by bootstrap). A DEBUG-trap assist audits
   consecutive re-runs (which `HISTCONTROL=ignoreboth` hides from history) with
   fresh exit codes; a leading space still opts a command out. Inspect with
   `audit_bash_history [N|-f]`, agent log with `-a`, merged all-users view
@@ -235,8 +241,12 @@ no root required. Run it after changing anything under `.config/dotfiles/`,
   (and a legacy `~/.path`) into `~/.systemspecific` at shell start (user scope)
 - `$D/init/claude-code-audit-hook.sh`: Claude Code PostToolUse hook feeding the
   agent audit log (installed with the runtime by bootstrap)
-- `$D/init/dotfiles-bash-history.sudoers`: sudoers `env_keep` sample for
-  `BASH_HISTORY_USERNAME`
+- `$D/init/dotfiles-bash-history.sudoers`: sudoers `env_keep` for
+  `BASH_HISTORY_USERNAME` (bootstrap installs it after `visudo -c`)
+- `$D/init/dotfiles-audit.tmpfiles.conf`: recreates the `/run` login-session
+  identity map each boot (bootstrap installs it)
+- `$D/init/dotfiles-audit-sshd.conf`: `PermitUserEnvironment` allowlist drop-in
+  for SSH-injected identity (admin-installed)
 - `.inputrc`: readline completion and history settings
 - `.tmux.conf`: tmux prefix and keybindings
 - `.curlrc` / `.wgetrc`: networking defaults

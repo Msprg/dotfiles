@@ -236,6 +236,44 @@ env -i PATH="$PATH" HOME="$inject_home" RT="$runtime_dir" ADIR="$inject_dir" bas
 ' || fail "newline in BASH_HISTORY_USERNAME forged an audit record (exit $?)"
 pass 'newline in BASH_HISTORY_USERNAME cannot forge audit records'
 
+# [regression] SSH-key identity follows a user across `su -`/`sudo su -` via
+# the login-session map (env var scrubbed, kernel session id inherited).
+sess_home="$test_tmp_dir/sess-home"
+sess_audit="$test_tmp_dir/sess-audit"
+sess_dir="$test_tmp_dir/sess-map"
+mkdir -p "$sess_home" "$sess_audit" "$sess_dir"; chmod 1733 "$sess_dir"
+env -i PATH="$PATH" HOME="$sess_home" RT="$runtime_dir" \
+	ADIR="$sess_audit" SDIR="$sess_dir" bash --noprofile --norc -c '
+	set -u
+	function dotfiles_dbg { :; }
+	source "$RT/functions.internal.d/00-common.bash"
+	source "$RT/functions.internal.d/10-history.bash"
+	export DOTFILES_AUDIT_DIR="$ADIR" DOTFILES_AUDIT_SESSION_DIR="$SDIR" \
+		DOTFILES_FEATURE_TRACK_COMMAND_DURATION=false
+	# login shell: key set the identity, audit session 4242
+	export DOTFILES_AUDIT_SESSION_ID=4242 BASH_HISTORY_USERNAME=alice
+	[ "$(__dotfiles_audit_identity)" = alice ] || exit 10
+	[ "$(cat "$SDIR/4242")" = alice ] || exit 11
+	[ "$(stat -c %a "$SDIR/4242")" = 600 ] || exit 12
+	# sudo su - : env scrubbed, SAME session id, now (pretend) root
+	unset BASH_HISTORY_USERNAME
+	[ "$(__dotfiles_audit_identity)" = alice ] || exit 13
+	# unseeded / no-session must fall back, never mis-attribute
+	export DOTFILES_AUDIT_SESSION_ID=4294967295
+	[ "$(__dotfiles_audit_identity)" = "$(id -un)" ] || exit 14
+	[ ! -e "$SDIR/4294967295" ] || exit 15
+	export DOTFILES_AUDIT_SESSION_ID=7777
+	[ "$(__dotfiles_audit_identity)" = "$(id -un)" ] || exit 16
+	# escalated append lands in alices file AND body, not root
+	export DOTFILES_AUDIT_SESSION_ID=4242
+	unset __dotfiles_audit_file_cached; audit_history_file_path > /dev/null
+	AF="$(audit_history_file_path)"
+	[ "$AF" = "$ADIR/alice.log" ] || exit 17
+	history -c; history -s "id"; last_cmd_exit_code=0; append_bash_history_audit
+	grep -q "alice .* id$" "$AF" || exit 18
+' || fail "login-session identity recovery failed (exit $?)"
+pass 'SSH-key identity survives su -/sudo su - via the login-session map'
+
 #!SECTION audit unit behavior
 audit_dir="$test_tmp_dir/audit"
 audit_home="$test_tmp_dir/audit-home"
@@ -370,6 +408,7 @@ HOME="$system_home" \
 	DOTFILES_SYSTEM_INSTALL_ROOT="$system_root" \
 	DOTFILES_SYSTEM_PROFILE_D_DIR="$system_profile_d" \
 	DOTFILES_SYSTEM_AUDIT_DIR="$system_audit" \
+	DOTFILES_SYSTEM_SESSION_DIR="$system_fixture/run/sessions" \
 	bash "$repo_dir/bootstrap.sh" --force > /dev/null \
 	|| fail 'default system-wide bootstrap failed'
 [ -r "$system_root/functions" ] || fail 'system install omitted the runtime loader'
@@ -379,6 +418,8 @@ HOME="$system_home" \
 grep -q '^scope=system$' "$system_root/.dotfiles-install" \
 	|| fail 'system install metadata has the wrong scope'
 [ "$(stat -c '%a' "$system_audit")" = 1733 ] || fail 'audit dir does not have mode 1733'
+[ "$(stat -c '%a' "$system_fixture/run/sessions" 2> /dev/null)" = 1733 ] \
+	|| fail 'login-session map dir was not created with mode 1733'
 ! grep -q 'case "\$-"' "$system_profile_d/dotfiles.sh" \
 	|| fail 'profile.d hook regained an interactivity guard (breaks agent shells)'
 pass 'bootstrap defaults to a system-wide install with hook, metadata, audit store'
@@ -418,6 +459,7 @@ HOME="$migration_home" \
 	DOTFILES_SYSTEM_INSTALL_ROOT="$system_root" \
 	DOTFILES_SYSTEM_PROFILE_D_DIR="$system_profile_d" \
 	DOTFILES_SYSTEM_AUDIT_DIR="$system_audit" \
+	DOTFILES_SYSTEM_SESSION_DIR="$system_fixture/run/sessions" \
 	bash "$repo_dir/bootstrap.sh" --system --migrate-user --force > /dev/null \
 	|| fail 'legacy per-user migration failed'
 compgen -G "$migration_home/.dotfiles-user-install-backup-*/.bash_profile" > /dev/null \
@@ -448,6 +490,7 @@ HOME="$sudo_env_home" \
 	DOTFILES_SYSTEM_INSTALL_ROOT="$system_root" \
 	DOTFILES_SYSTEM_PROFILE_D_DIR="$system_profile_d" \
 	DOTFILES_SYSTEM_AUDIT_DIR="$system_audit" \
+	DOTFILES_SYSTEM_SESSION_DIR="$system_fixture/run/sessions" \
 	bash "$repo_dir/bootstrap.sh" --system --migrate-user --force > /dev/null \
 	|| fail 'migration with stray SUDO_USER failed'
 compgen -G "$sudo_env_home/.dotfiles-user-install-backup-*/.bash_profile" > /dev/null \
@@ -587,6 +630,7 @@ HOME="$update_home" \
 	DOTFILES_SYSTEM_INSTALL_ROOT="$update_root" \
 	DOTFILES_SYSTEM_PROFILE_D_DIR="$update_profile_d" \
 	DOTFILES_SYSTEM_AUDIT_DIR="$update_audit" \
+	DOTFILES_SYSTEM_SESSION_DIR="$update_e2e/run/sessions" \
 	bash "$update_source/bootstrap.sh" --system --force > /dev/null \
 	|| fail 'initial end-to-end system installation failed'
 grep -q "^installed_commit=$update_commit_one$" "$update_root/.dotfiles-install" \
@@ -601,6 +645,7 @@ HOME="$update_home" \
 	DOTFILES_BOOTSTRAP_NO_SUDO=true \
 	DOTFILES_SYSTEM_PROFILE_D_DIR="$update_profile_d" \
 	DOTFILES_SYSTEM_AUDIT_DIR="$update_audit" \
+	DOTFILES_SYSTEM_SESSION_DIR="$update_e2e/run/sessions" \
 	DOTFILES_FEATURE_HISTORY_AUDIT=false \
 	bash --noprofile --norc -c '
 		source "$DOTFILES_HOME/bash_profile" >/dev/null 2>&1

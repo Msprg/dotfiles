@@ -107,7 +107,7 @@ Everything else lives in `$DOTFILES_HOME`, without leading dots:
 | `functions.internal.d/` | runtime modules: `00-common`, `10-history` (audit), `20-env`, `30-update`, `40-prompt` |
 | `functions.external.d/` | user-facing modules: `10-core`, `20-dotfiles`, `30-filesystem`, `40-git`, `50-network-media` |
 | `aliases/bash/` | modular aliases |
-| `init/` | samples and hooks (sudoers snippet, Claude Code audit hook) |
+| `init/` | samples and hooks: sudoers env_keep, sshd allowlist drop-in, tmpfiles.d session map, Claude Code audit hook |
 | `.dotfiles-install` | install metadata written by bootstrap |
 
 Per-user files in `$DOTFILES_LOCAL_HOME`: `features.local`,
@@ -305,18 +305,44 @@ enabled; usernames longer than 24 characters are truncated.
 place; the viewer falls back to them with a notice when the current log is
 empty.
 
-**Audit identity**: `BASH_HISTORY_USERNAME` is intended for SSH setups that
-inject an identity from `authorized_keys`:
+**Audit identity across privilege escalation.** On a shared Unix account,
+`BASH_HISTORY_USERNAME` carries the *real* person's identity, injected per SSH
+key from `authorized_keys`:
 
 ```
-environment="BASH_HISTORY_USERNAME=firstname.lastname" ssh-ed25519 ...
+environment="BASH_HISTORY_USERNAME=firstname.lastname" ssh-ed25519 ... firstname
 ```
 
-To preserve it across `sudo -i` and `sudo su`, install the sample sudoers
-snippet (`Defaults env_keep += "BASH_HISTORY_USERNAME"`) from
-`$DOTFILES_HOME/init/dotfiles-bash-history.sudoers` with
-`visudo -f /etc/sudoers.d/dotfiles-bash-history`. Login-style `su -` /
-`sudo su -` reset the environment and are not covered.
+That injection needs OpenSSH's per-variable allowlist (7.8+); install the drop-in
+`$DOTFILES_HOME/init/dotfiles-audit-sshd.conf`
+(`PermitUserEnvironment BASH_HISTORY_USERNAME`) to
+`/etc/ssh/sshd_config.d/`, then `sshd -t && systemctl reload sshd`. Prefer the
+allowlist over a bare `PermitUserEnvironment yes`, which would also let a key
+set `LD_PRELOAD` and friends.
+
+Keeping that identity attached through `sudo` / `su` uses **two** mechanisms,
+both installed automatically by a system-scope bootstrap:
+
+- **`sudo` family** (`sudo`, `sudo -s`, `sudo -i`, `sudo su`) — the sudoers
+  drop-in `Defaults env_keep += "BASH_HISTORY_USERNAME"`
+  (`$DOTFILES_HOME/init/dotfiles-bash-history.sudoers`, installed to
+  `/etc/sudoers.d/` after `visudo -c` validation) preserves the variable.
+- **Login shells that scrub the environment** (`su -`, `sudo su -`) — env_keep
+  cannot help here, so the runtime keeps a **login-session map** keyed on the
+  kernel audit session id (`/proc/self/sessionid`). That id is set by PAM at
+  login, is immutable, and is inherited by every descendant *including* an
+  env-scrubbing `su -`. The login shell records `sessionid -> identity` under
+  `/run/dotfiles-audit/sessions/` (a `1733` tmpfs dir, files `0600`); an
+  escalated shell that lost the variable recovers the identity by its own
+  (identical) session id. The map lives on tmpfs so reused session ids never
+  survive a reboot; a `tmpfiles.d` rule
+  (`$DOTFILES_HOME/init/dotfiles-audit.tmpfiles.conf`) recreates the dir each
+  boot. When there is no audit session (id `4294967295`) the record falls back
+  to the account name — it is never mis-attributed.
+
+The net effect: `ssh alice@host` (shared account) then `sudo su -` still records
+alice, in both the filename and the record's user column. Agent recorders
+(`agent_audit`, the Claude Code hook) resolve the identity the same way.
 
 **Writer guarantees**: appends are serialized with `flock`; each history event
 is audited once; an identical re-run (same user, exit code and command)

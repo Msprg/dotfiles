@@ -50,15 +50,81 @@ function __dotfiles_audit_sanitize_identity {
 	[[ "$identity" =~ ^[A-Za-z0-9_@][A-Za-z0-9._@-]{0,63}$ ]]
 }
 
+# The login-session map lets the SSH-key identity (BASH_HISTORY_USERNAME) follow
+# a user across privilege escalation. env_keep carries it through the sudo
+# family, but `su -` / `sudo su -` scrub the environment for the login shell.
+# The kernel audit session id (/proc/self/sessionid) is set by PAM at login,
+# is immutable, and is inherited by every descendant INCLUDING an env-scrubbing
+# `su -`. So the login shell records "<sessionid> -> identity" once, and any
+# escalated shell that lost the env var recovers it by its own (identical)
+# session id. The map lives on tmpfs (/run) so stale sessionids never survive a
+# reboot (they are reused with low numbers each boot).
+function __dotfiles_audit_session_id {
+	local sid=''
+	if [ -n "${DOTFILES_AUDIT_SESSION_ID:-}" ]; then
+		sid="$DOTFILES_AUDIT_SESSION_ID"
+	elif [ -r /proc/self/sessionid ]; then
+		IFS= read -r sid < /proc/self/sessionid 2> /dev/null
+	fi
+	# 4294967295 (uint32 -1) is the kernel's "no audit session" sentinel.
+	case "$sid" in
+		'' | *[!0-9]* | 4294967295) return 1 ;;
+	esac
+	printf '%s\n' "$sid"
+}
+
+function __dotfiles_audit_session_dir {
+	printf '%s\n' "${DOTFILES_AUDIT_SESSION_DIR:-/run/dotfiles-audit/sessions}"
+}
+
+function __dotfiles_audit_seed_session {
+	local identity="$1" sid dir file existing
+	sid="$(__dotfiles_audit_session_id)" || return 0
+	dir="$(__dotfiles_audit_session_dir)"
+	[ -d "$dir" ] && [ -w "$dir" ] || return 0
+	file="$dir/$sid"
+	if [ -r "$file" ]; then
+		IFS= read -r existing < "$file" 2> /dev/null
+		[ "$existing" = "$identity" ] && return 0
+	fi
+	# Own file, 0600: peers cannot read another session's identity; root (an
+	# escalated shell) reads it regardless.
+	( umask 077; printf '%s\n' "$identity" > "$file" ) 2> /dev/null || true
+	dotfiles_dbg ".FUNCTIONS audit session seeded: sid=$sid identity='$identity' file='$file'" >&2
+	return 0
+}
+
+function __dotfiles_audit_recover_session {
+	local sid dir file identity
+	sid="$(__dotfiles_audit_session_id)" || return 1
+	dir="$(__dotfiles_audit_session_dir)"
+	file="$dir/$sid"
+	[ -r "$file" ] || return 1
+	IFS= read -r identity < "$file" 2> /dev/null
+	[ -n "$identity" ] && __dotfiles_audit_sanitize_identity "$identity" || return 1
+	printf '%s\n' "$identity"
+}
+
 function __dotfiles_audit_identity {
 	local identity="${BASH_HISTORY_USERNAME:-}"
+	local recovered
 
 	if [ -n "$identity" ] && __dotfiles_audit_sanitize_identity "$identity"; then
+		# We are (or descend from) the shell where the SSH key set the
+		# identity: record it so escalated shells in this session recover it.
+		__dotfiles_audit_seed_session "$identity"
 		printf '%s\n' "$identity"
 		return 0
 	fi
 	if [ -n "$identity" ]; then
-		dotfiles_dbg ".FUNCTIONS audit identity rejected: BASH_HISTORY_USERNAME failed sanitization; using id -un" >&2
+		dotfiles_dbg ".FUNCTIONS audit identity rejected: BASH_HISTORY_USERNAME failed sanitization; trying session map" >&2
+	fi
+	# No usable env identity (e.g. after `su -` scrubbed it): recover the
+	# login-session identity if this session was seeded.
+	if recovered="$(__dotfiles_audit_recover_session)"; then
+		dotfiles_dbg ".FUNCTIONS audit identity recovered from session map: '$recovered'" >&2
+		printf '%s\n' "$recovered"
+		return 0
 	fi
 	id -un
 }
@@ -334,9 +400,12 @@ function append_bash_history_audit {
 	fi
 
 	timestamp="$(date '+%Y-%m-%dT%H:%M:%S%z')"
-	history_user="${BASH_HISTORY_USERNAME:-${USER:-unknown}}"
-	# Strip control chars (esp. newlines): BASH_HISTORY_USERNAME is
-	# attacker-influenceable and must not forge audit records.
+	# Use the resolved identity so the record body matches the filename and so
+	# an escalated shell (su -) recovers the login identity from the session
+	# map instead of recording root/USER.
+	history_user="$(__dotfiles_audit_identity)"
+	# Strip control chars (esp. newlines): the identity may come from the
+	# attacker-influenceable BASH_HISTORY_USERNAME and must not forge records.
 	history_user="${history_user//[![:print:]]/}"
 	history_user_display="$history_user"
 	if [ "${#history_user_display}" -gt 24 ]; then
