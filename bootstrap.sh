@@ -302,6 +302,11 @@ function _install_systemwide() {
 
 	_run_with_privileges mkdir -p "$install_root" \
 		&& _rsync_runtime "$install_root" 'true' --delete-excluded \
+		&& { if _is_true "${DOTFILES_BOOTSTRAP_NO_SUDO:-false}" && [ "$EUID" -ne 0 ]; then
+				true;  # fixture run: cannot chown to root
+			else
+				_run_with_privileges chown -R root:root "$install_root";
+			fi; } \
 		&& _run_with_privileges chmod -R a+rX "$install_root" \
 		&& _write_install_metadata "$install_root/.dotfiles-install" 'system' "$install_root" \
 		&& _install_system_profile_hook "$install_root" "$profile_d_dir" \
@@ -485,7 +490,7 @@ function _migrate_legacy_user_install() {
 		bash_profile agent_guard agent_guard.local.example agent_audit
 		path_defaults local_additions exports features features.local.example
 		prompt functions functions.internal.bash functions.external.bash
-		functions.internal.d functions.external.d aliases .dotfiles-install
+		functions.internal.d functions.external.d aliases init .dotfiles-install
 	);
 
 	# Salvage installer appends below the rc markers before touching rc files.
