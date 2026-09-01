@@ -403,6 +403,25 @@ bash "$repo_dir/bootstrap.sh" --user --migrate-user > /dev/null 2>&1
 [ "$?" = 2 ] || fail '--migrate-user with --user did not error with exit 2'
 pass '--migrate-user with --user is rejected'
 
+# SUDO_USER in the environment must NOT redirect the migration when the
+# bootstrap is not actually running as root (only sudo-root runs re-target).
+sudo_env_home="$system_fixture/sudo-env-home"
+mkdir -p "$sudo_env_home"
+printf '%s\n' '# Executing .BASH_PROFILE legacy marker' > "$sudo_env_home/.bash_profile"
+printf '%s\n' '# legacy runtime loader' > "$sudo_env_home/.functions"
+HOME="$sudo_env_home" \
+	SUDO_USER=root \
+	DOTFILES_BOOTSTRAP_NO_SUDO=true \
+	DOTFILES_BOOTSTRAP_SKIP_COMPLETION=true \
+	DOTFILES_SYSTEM_INSTALL_ROOT="$system_root" \
+	DOTFILES_SYSTEM_PROFILE_D_DIR="$system_profile_d" \
+	DOTFILES_SYSTEM_AUDIT_DIR="$system_audit" \
+	bash "$repo_dir/bootstrap.sh" --system --migrate-user --force > /dev/null \
+	|| fail 'migration with stray SUDO_USER failed'
+compgen -G "$sudo_env_home/.dotfiles-user-install-backup-*/.bash_profile" > /dev/null \
+	|| fail 'stray SUDO_USER redirected the migration away from $HOME'
+pass 'migration ignores SUDO_USER unless actually running as root'
+
 #!SECTION bootstrap: user scope + legacy layouts
 user_fixture="$test_tmp_dir/user-install"
 mkdir -p "$user_fixture/.functions.internal.d" "$user_fixture/.aliases/bash"

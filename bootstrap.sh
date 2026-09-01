@@ -273,7 +273,9 @@ function _rsync_runtime() {
 	local install_root="$1";
 	local privileged="$2";
 	shift 2;
-	local rsync_cmd=(rsync -avh --no-perms --delete
+	# --no-owner --no-group: running as root would otherwise preserve the
+	# source checkout's owner and hand the shared runtime to that user.
+	local rsync_cmd=(rsync -avh --no-perms --no-owner --no-group --delete
 		--exclude '*.local'
 		--exclude 'repo_dir'
 		--exclude '.dotfiles-install'
@@ -282,10 +284,10 @@ function _rsync_runtime() {
 
 	if _is_true "$privileged"; then
 		_run_with_privileges "${rsync_cmd[@]}" \
-			&& _run_with_privileges rsync -avh --no-perms --delete "$DOTFILES_BOOTSTRAP_SOURCE_DIR/init/" "$install_root/init/";
+			&& _run_with_privileges rsync -avh --no-perms --no-owner --no-group --delete "$DOTFILES_BOOTSTRAP_SOURCE_DIR/init/" "$install_root/init/";
 	else
 		"${rsync_cmd[@]}" \
-			&& rsync -avh --no-perms --delete "$DOTFILES_BOOTSTRAP_SOURCE_DIR/init/" "$install_root/init/";
+			&& rsync -avh --no-perms --no-owner --no-group --delete "$DOTFILES_BOOTSTRAP_SOURCE_DIR/init/" "$install_root/init/";
 	fi;
 }
 
@@ -428,10 +430,33 @@ function _install_user() {
 		&& persist_dotfiles_repo_dir;
 }
 
+# Under `sudo bash bootstrap.sh` $HOME is root's home, but --migrate-user is
+# meant for the INVOKING user's install: resolve the migration target from
+# SUDO_USER when running as root.
+function _dotfiles_migration_home() {
+	local target_user="${SUDO_USER:-}";
+	local target_home='';
+
+	if [ "$EUID" -eq 0 ] && [ -n "$target_user" ] && [ "$target_user" != 'root' ]; then
+		target_home="$(getent passwd "$target_user" 2> /dev/null | cut -d: -f6)";
+	fi;
+	printf '%s\n' "${target_home:-$HOME}";
+}
+
+function _dotfiles_migration_user() {
+	if [ "$EUID" -eq 0 ] && [ -n "${SUDO_USER:-}" ] && [ "${SUDO_USER}" != 'root' ]; then
+		printf '%s\n' "$SUDO_USER";
+	else
+		id -un;
+	fi;
+}
+
 function _legacy_user_install_detected() {
-	[ -f "$HOME/.bash_profile" ] || return 1;
-	grep -qE 'Executing \.BASH_PROFILE|DOTFILES_HOME' "$HOME/.bash_profile" 2> /dev/null || return 1;
-	[ -e "$HOME/.functions" ] || [ -d "$HOME/.functions.internal.d" ] || [ -d "$HOME/.config/dotfiles" ];
+	local target_home;
+	target_home="$(_dotfiles_migration_home)";
+	[ -f "$target_home/.bash_profile" ] || return 1;
+	grep -qE 'Executing \.BASH_PROFILE|DOTFILES_HOME' "$target_home/.bash_profile" 2> /dev/null || return 1;
+	[ -e "$target_home/.functions" ] || [ -d "$target_home/.functions.internal.d" ] || [ -d "$target_home/.config/dotfiles" ];
 }
 
 # Deactivate a per-user install after a system-wide one. Moves ONLY files
@@ -439,7 +464,14 @@ function _legacy_user_install_detected() {
 # hand-written rc file is left untouched (with a notice). ~/.path, ~/.extra,
 # ~/.systemspecific and every *.local override stay in place.
 function _migrate_legacy_user_install() {
-	local backup_dir="$HOME/.dotfiles-user-install-backup-$(date +%Y%m%d-%H%M%S)";
+	local target_home target_user target_local_home;
+	target_home="$(_dotfiles_migration_home)";
+	target_user="$(_dotfiles_migration_user)";
+	target_local_home="${target_home}/.config/dotfiles";
+	if [ "$target_home" = "$HOME" ]; then
+		target_local_home="$DOTFILES_LOCAL_HOME";
+	fi;
+	local backup_dir="$target_home/.dotfiles-user-install-backup-$(date +%Y%m%d-%H%M%S)";
 	local moved_any='false' entry;
 	local home_artifacts=(
 		.bash_prompt .dotfiles_features .dotfiles_features.local.example .exports
@@ -457,7 +489,11 @@ function _migrate_legacy_user_install() {
 	);
 
 	# Salvage installer appends below the rc markers before touching rc files.
-	migrate_local_additions;
+	# (Only meaningful when migrating the current $HOME; local_additions works
+	# on $HOME by design.)
+	if [ "$target_home" = "$HOME" ]; then
+		migrate_local_additions;
+	fi;
 
 	mkdir -p "$backup_dir" || return 1;
 
@@ -465,42 +501,50 @@ function _migrate_legacy_user_install() {
 		local path="$1" label="$2";
 		[ -e "$path" ] || return 0;
 		mv "$path" "$backup_dir/$label" && moved_any='true' \
-			&& printf 'Moved %s -> %s/%s\n' "${path/#$HOME/\~}" "${backup_dir/#$HOME/\~}" "$label";
+			&& printf 'Moved %s -> %s/%s\n' "${path/#$target_home/\~}" "${backup_dir/#$target_home/\~}" "$label";
 	}
 
-	if [ -f "$HOME/.bash_profile" ]; then
-		if grep -qE 'Executing \.BASH_PROFILE|DOTFILES_HOME' "$HOME/.bash_profile" 2> /dev/null; then
-			_backup_move "$HOME/.bash_profile" '.bash_profile';
+	if [ -f "$target_home/.bash_profile" ]; then
+		if grep -qE 'Executing \.BASH_PROFILE|DOTFILES_HOME' "$target_home/.bash_profile" 2> /dev/null; then
+			_backup_move "$target_home/.bash_profile" '.bash_profile';
 		else
 			echo "NOTE: ~/.bash_profile does not look dotfiles-managed; leaving it in place.";
 		fi;
 	fi;
-	if [ -f "$HOME/.bashrc" ]; then
-		if grep -qE 'Executing \.BASHRC' "$HOME/.bashrc" 2> /dev/null; then
-			_backup_move "$HOME/.bashrc" '.bashrc';
+	if [ -f "$target_home/.bashrc" ]; then
+		if grep -qE 'Executing \.BASHRC' "$target_home/.bashrc" 2> /dev/null; then
+			_backup_move "$target_home/.bashrc" '.bashrc';
 		else
 			echo "NOTE: ~/.bashrc does not look dotfiles-managed; leaving it in place.";
 		fi;
 	fi;
 
 	for entry in "${home_artifacts[@]}"; do
-		_backup_move "$HOME/$entry" "$entry";
+		_backup_move "$target_home/$entry" "$entry";
 	done;
-	if [ -d "$DOTFILES_LOCAL_HOME" ]; then
+	if [ -d "$target_local_home" ]; then
 		mkdir -p "$backup_dir/config-dotfiles";
 		for entry in "${runtime_artifacts[@]}"; do
-			[ -e "$DOTFILES_LOCAL_HOME/$entry" ] || continue;
-			mv "$DOTFILES_LOCAL_HOME/$entry" "$backup_dir/config-dotfiles/$entry" && moved_any='true' \
-				&& printf 'Moved %s/%s -> backup\n' "${DOTFILES_LOCAL_HOME/#$HOME/\~}" "$entry";
+			[ -e "$target_local_home/$entry" ] || continue;
+			mv "$target_local_home/$entry" "$backup_dir/config-dotfiles/$entry" && moved_any='true' \
+				&& printf 'Moved %s/%s -> backup\n' "${target_local_home/#$target_home/\~}" "$entry";
 		done;
 	fi;
 
 	# Restore distro defaults so interactive shells keep normal behavior.
-	if [ ! -f "$HOME/.bashrc" ] && [ -f /etc/skel/.bashrc ]; then
-		cp /etc/skel/.bashrc "$HOME/.bashrc" && echo "Restored ~/.bashrc from /etc/skel.";
+	if [ ! -f "$target_home/.bashrc" ] && [ -f /etc/skel/.bashrc ]; then
+		cp /etc/skel/.bashrc "$target_home/.bashrc" && echo "Restored ~/.bashrc from /etc/skel.";
 	fi;
-	if [ ! -f "$HOME/.bash_profile" ] && [ -f /etc/skel/.bash_profile ]; then
-		cp /etc/skel/.bash_profile "$HOME/.bash_profile" && echo "Restored ~/.bash_profile from /etc/skel.";
+	if [ ! -f "$target_home/.bash_profile" ] && [ -f /etc/skel/.bash_profile ]; then
+		cp /etc/skel/.bash_profile "$target_home/.bash_profile" && echo "Restored ~/.bash_profile from /etc/skel.";
+	fi;
+	# Everything this migration created must belong to the target user, not
+	# root: a root-owned rc file or backup dir would lock the user out of
+	# their own configuration.
+	if [ "$EUID" -eq 0 ] && [ "$target_user" != 'root' ]; then
+		chown -R "$target_user" "$backup_dir" 2> /dev/null;
+		[ -f "$target_home/.bashrc" ] && chown "$target_user" "$target_home/.bashrc" 2> /dev/null;
+		[ -f "$target_home/.bash_profile" ] && chown "$target_user" "$target_home/.bash_profile" 2> /dev/null;
 	fi;
 
 	unset -f _backup_move;
@@ -568,7 +612,7 @@ dotfiles_bootstrap_status=0;
 if [ "$dotfiles_install_scope" = 'system' ]; then
 	if _install_systemwide; then
 		if [ "$dotfiles_migrate_user" = 'true' ]; then
-			if _legacy_user_install_detected || [ -d "$DOTFILES_LOCAL_HOME" ]; then
+			if _legacy_user_install_detected || [ -d "$(_dotfiles_migration_home)/.config/dotfiles" ]; then
 				_migrate_legacy_user_install || dotfiles_bootstrap_status=1;
 			else
 				echo 'No per-user install detected; nothing to migrate.';
@@ -600,7 +644,8 @@ unset -f _command_exists _is_true _run_with_privileges _has_bash_completion_load
 	_write_install_metadata _install_system_profile_hook _install_system_bashrc_hook \
 	_install_audit_dir _rsync_runtime _install_systemwide migrate_local_additions \
 	migrate_legacy_layout persist_dotfiles_repo_dir _install_user \
-	_legacy_user_install_detected _migrate_legacy_user_install _show_bootstrap_help 2> /dev/null;
+	_legacy_user_install_detected _migrate_legacy_user_install _show_bootstrap_help \
+	_dotfiles_migration_home _dotfiles_migration_user 2> /dev/null;
 dotfiles_bootstrap_rc="$dotfiles_bootstrap_status";
 unset DOTFILES_BOOTSTRAP_SOURCE_DIR dotfiles_install_scope dotfiles_bootstrap_force \
 	dotfiles_migrate_user bootstrap_arg dotfiles_bootstrap_status;
