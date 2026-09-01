@@ -4,12 +4,13 @@
 function aac2mp3() {
 	local aac_file="$1"
 	local mp3_file
-	local wav_file=/tmp/aac2mp3.wav
+	local wav_file
 
+	wav_file="$(mktemp --suffix=.wav)" || return 1
 	mp3_file="$(basename "$aac_file" .aac).mp3"
-	ffmpeg -i "$aac_file" "$wav_file" && \
-	ffmpeg -i "$wav_file" -acodec libmp3lame "$mp3_file" && \
-	rm "$wav_file"
+	ffmpeg -y -i "$aac_file" "$wav_file" && \
+	ffmpeg -i "$wav_file" -acodec libmp3lame "$mp3_file"
+	rm -f "$wav_file"
 }
 
 function togif() {

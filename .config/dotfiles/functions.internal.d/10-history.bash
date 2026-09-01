@@ -335,6 +335,9 @@ function append_bash_history_audit {
 
 	timestamp="$(date '+%Y-%m-%dT%H:%M:%S%z')"
 	history_user="${BASH_HISTORY_USERNAME:-${USER:-unknown}}"
+	# Strip control chars (esp. newlines): BASH_HISTORY_USERNAME is
+	# attacker-influenceable and must not forge audit records.
+	history_user="${history_user//[![:print:]]/}"
 	history_user_display="$history_user"
 	if [ "${#history_user_display}" -gt 24 ]; then
 		history_user_display="${history_user_display:0:21}..."
@@ -480,6 +483,9 @@ function __dotfiles_install_lean_audit_hook {
 	local prompt_part
 	local prompt_parts=()
 
+	# Fold newlines to ; first: `read` stops at the first newline, which
+	# would otherwise silently drop a multi-line PROMPT_COMMAND tail.
+	current_prompt_command="${current_prompt_command//$'\n'/;}"
 	IFS=';' read -r -a prompt_parts <<< "$current_prompt_command"
 	for prompt_part in "${prompt_parts[@]}"; do
 		prompt_part="${prompt_part#"${prompt_part%%[![:space:]]*}"}"

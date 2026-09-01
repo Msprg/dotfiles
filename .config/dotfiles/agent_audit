@@ -85,6 +85,8 @@ function __dotfiles_agent_audit_now_us {
 		printf '%s\n' "$now"
 	else
 		now="$(date +%s%N)"
+		# BSD/macOS date leaves %N literal; fall back to whole seconds.
+		case "$now" in *[!0-9]*) now="$(( $(date +%s) * 1000000000 ))" ;; esac
 		printf '%s\n' "$((now / 1000))"
 	fi
 }
@@ -158,6 +160,9 @@ function __dotfiles_agent_audit_write {
 
 	timestamp="$(date '+%Y-%m-%dT%H:%M:%S%z')"
 	history_user="${BASH_HISTORY_USERNAME:-${USER:-unknown}}"
+	# Strip control chars (esp. newlines): BASH_HISTORY_USERNAME is
+	# attacker-influenceable and must not forge audit records.
+	history_user="${history_user//[![:print:]]/}"
 	[ "${#history_user}" -gt 24 ] && history_user="${history_user:0:21}..."
 	agent_name="${DOTFILES_AGENT:-agent}"
 	[ "${#agent_name}" -gt 14 ] && agent_name="${agent_name:0:11}..."

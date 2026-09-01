@@ -276,6 +276,7 @@ function _rsync_runtime() {
 	# --no-owner --no-group: running as root would otherwise preserve the
 	# source checkout's owner and hand the shared runtime to that user.
 	local rsync_cmd=(rsync -avh --no-perms --no-owner --no-group --delete
+		--filter 'protect init/' --filter 'protect init/**'
 		--exclude '*.local'
 		--exclude 'repo_dir'
 		--exclude '.dotfiles-install'
@@ -338,6 +339,9 @@ function migrate_local_additions() {
 # are removed (repo metadata only when identical to the repo copy).
 function migrate_legacy_layout() {
 	local old new legacy_file legacy_dir;
+	if ! declare -F dotfiles_dbg > /dev/null; then
+		function dotfiles_dbg { [[ "${DOTFILES_DEBUG:-}" == "true" ]] && printf '[DOTFILE_DBG: %s]\n' "$*"; return 0; }
+	fi;
 	local legacy_repo_files=(
 		.bash_prompt .exports .functions .functions.external.bash .functions.internal.bash
 		.dotfiles_features .dotfiles_features.local.example
@@ -358,19 +362,28 @@ function migrate_legacy_layout() {
 		.dotfiles_repo_dir:repo_dir
 	EOF
 
-	for legacy_file in "${legacy_repo_files[@]}"; do
-		if [ -e "$HOME/$legacy_file" ] && [ ! -d "$HOME/$legacy_file" ]; then
-			rm -f "$HOME/$legacy_file" && printf 'Removed legacy ~/%s\n' "$legacy_file";
+	# Only reclaim these dotted names when this $HOME actually held a prior
+	# dotfiles install (marker in ~/.bash_profile). A first-time user may keep
+	# their OWN ~/.exports / ~/.functions / ~/.bash_prompt sourced from a
+	# hand-written rc; deleting those on a plain --user run would be silent,
+	# irreversible data loss.
+	if _legacy_user_install_detected; then
+		for legacy_file in "${legacy_repo_files[@]}"; do
+			if [ -e "$HOME/$legacy_file" ] && [ ! -d "$HOME/$legacy_file" ]; then
+				rm -f "$HOME/$legacy_file" && printf 'Removed legacy ~/%s\n' "$legacy_file";
+			fi;
+		done;
+		for legacy_dir in .functions.internal.d .functions.external.d; do
+			if [ -d "$HOME/$legacy_dir" ]; then
+				rm -rf "$HOME/$legacy_dir" && printf 'Removed legacy ~/%s/\n' "$legacy_dir";
+			fi;
+		done;
+		if [ -d "$HOME/.aliases/bash" ]; then
+			rm -rf "$HOME/.aliases/bash" && printf 'Removed legacy ~/.aliases/bash\n';
+			rmdir "$HOME/.aliases" 2> /dev/null || true;
 		fi;
-	done;
-	for legacy_dir in .functions.internal.d .functions.external.d; do
-		if [ -d "$HOME/$legacy_dir" ]; then
-			rm -rf "$HOME/$legacy_dir" && printf 'Removed legacy ~/%s/\n' "$legacy_dir";
-		fi;
-	done;
-	if [ -d "$HOME/.aliases/bash" ]; then
-		rm -rf "$HOME/.aliases/bash" && printf 'Removed legacy ~/.aliases/bash\n';
-		rmdir "$HOME/.aliases" 2> /dev/null || true;
+	else
+		dotfiles_dbg "migrate_legacy_layout: no prior install marker in ~/.bash_profile; leaving user-owned dotfiles untouched";
 	fi;
 
 	# Repo metadata that older bootstraps copied into $HOME: only remove when
@@ -444,6 +457,12 @@ function _dotfiles_migration_home() {
 
 	if [ "$EUID" -eq 0 ] && [ -n "$target_user" ] && [ "$target_user" != 'root' ]; then
 		target_home="$(getent passwd "$target_user" 2> /dev/null | cut -d: -f6)";
+		if [ -z "$target_home" ] || [ ! -d "$target_home" ]; then
+			# Do NOT silently fall back to root's home: the caller would then
+			# operate on /root while chowning results to SUDO_USER.
+			printf '__DOTFILES_MIGRATION_HOME_UNRESOLVED__\n';
+			return 0;
+		fi;
 	fi;
 	printf '%s\n' "${target_home:-$HOME}";
 }
@@ -472,6 +491,10 @@ function _migrate_legacy_user_install() {
 	local target_home target_user target_local_home;
 	target_home="$(_dotfiles_migration_home)";
 	target_user="$(_dotfiles_migration_user)";
+	if [ "$target_home" = '__DOTFILES_MIGRATION_HOME_UNRESOLVED__' ]; then
+		echo "dotfiles: could not resolve home directory for '${SUDO_USER:-?}'; skipping --migrate-user." >&2;
+		return 1;
+	fi;
 	target_local_home="${target_home}/.config/dotfiles";
 	if [ "$target_home" = "$HOME" ]; then
 		target_local_home="$DOTFILES_LOCAL_HOME";
@@ -550,6 +573,9 @@ function _migrate_legacy_user_install() {
 		chown -R "$target_user" "$backup_dir" 2> /dev/null;
 		[ -f "$target_home/.bashrc" ] && chown "$target_user" "$target_home/.bashrc" 2> /dev/null;
 		[ -f "$target_home/.bash_profile" ] && chown "$target_user" "$target_home/.bash_profile" 2> /dev/null;
+		# migrate_local_additions may have created ~/.systemspecific as root.
+		local la_target="${DOTFILES_LOCAL_ADDITIONS_FILE:-$target_home/.systemspecific}";
+		[ -e "$la_target" ] && chown "$target_user" "$la_target" 2> /dev/null;
 	fi;
 
 	unset -f _backup_move;

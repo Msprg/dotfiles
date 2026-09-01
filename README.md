@@ -361,6 +361,20 @@ users write fine; confined users may be denied and then silently fall back to
 their `$HOME` file. Verify with `ls -Zd /var/log/dotfiles/audit`; if needed,
 set a context with `semanage fcontext` and `restorecon`.
 
+**Trust model (read before relying on this for security auditing)**: the store
+is a `1733` directory where any local user may *create* files. The sticky bit
+stops one user from deleting or overwriting another's existing `0600` log, but
+before a given identity has ever written, another local user can pre-create
+that identity's `<name>.log` (or `<name>.agent.log`). The victim's shell then
+finds the name unwritable and silently falls back to `$HOME`, so a hostile
+local user can **divert or pre-seed** another user's audit trail. This is an
+accepted trade-off of keeping per-user files in a shared, unprivileged-writable
+directory (chosen so the flock/dedupe writer can read back its own tail). It is
+adequate when the local users are cooperating (one admin plus coding agents),
+**not** a tamper-proof audit boundary against a hostile local account. For that,
+move to root-owned files written by a privileged helper (a setuid or
+sudoers-gated writer) — a larger change, tracked as a possible follow-up.
+
 ## Agent Command Audit
 
 Agent-mode shells record what agents run into a separate agent log —

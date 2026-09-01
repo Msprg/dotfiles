@@ -141,6 +141,9 @@ fi
 
 timestamp="$(date '+%Y-%m-%dT%H:%M:%S%z')"
 history_user="${BASH_HISTORY_USERNAME:-${USER:-unknown}}"
+# Strip control chars (esp. newlines): BASH_HISTORY_USERNAME is
+# attacker-influenceable and must not forge audit records.
+history_user="${history_user//[![:print:]]/}"
 [ "${#history_user}" -gt 24 ] && history_user="${history_user:0:21}..."
 
 printf '%-24s  %-24s  %-14s  exit:%-3s  took:%-9s  %s\n' \

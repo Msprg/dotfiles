@@ -212,16 +212,17 @@ function __dotfiles_run_update_check_worker {
 	now_epoch="$(date +%s)"
 	mkdir -p "$state_dir" || return 0
 	if ! mkdir "$lock_dir" 2> /dev/null; then
-		lock_epoch='0'
-		[ -r "$lock_dir/created_at" ] && IFS= read -r lock_epoch < "$lock_dir/created_at"
+		# Judge staleness from the lock dir's own mtime (set atomically by
+		# mkdir): a separate created_at file has a write window during which a
+		# just-acquired lock looks epoch-0 and would be wrongly reaped.
+		lock_epoch="$(stat -c %Y "$lock_dir" 2> /dev/null || stat -f %m "$lock_dir" 2> /dev/null || echo 0)"
 		[[ "$lock_epoch" =~ ^[0-9]+$ ]] || lock_epoch=0
-		if [ $((now_epoch - lock_epoch)) -lt 900 ]; then
+		if [ "$lock_epoch" -ne 0 ] && [ $((now_epoch - lock_epoch)) -lt 900 ]; then
 			return 0
 		fi
 		rm -rf "$lock_dir" 2> /dev/null || return 0
 		mkdir "$lock_dir" 2> /dev/null || return 0
 	fi
-	printf '%s\n' "$now_epoch" > "$lock_dir/created_at" 2> /dev/null || true
 
 	if __dotfiles_read_install_metadata; then
 		local_commit="$__dotfiles_install_commit"

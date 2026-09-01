@@ -204,6 +204,38 @@ env -i PATH="$PATH" "${hook_env[@]}" bash --noprofile --norc -i -c '
 ' 2> /dev/null || fail 're-sourcing the runtime stacked prompt hooks'
 pass 'prompt hooks assemble per profile and re-source idempotently'
 
+# [regression] multi-line PROMPT_COMMAND must not lose its tail to the ; split.
+env -i PATH="$PATH" "${hook_env[@]}" DOTFILES_FEATURE_PROFILE=full bash --noprofile --norc -i -c '
+	PROMPT_COMMAND=$'"'"'echo alpha\necho omega'"'"'
+	source "$HOME/.bash_profile" >/dev/null 2>&1
+	[[ "$PROMPT_COMMAND" == *"echo alpha"* ]] || exit 1
+	[[ "$PROMPT_COMMAND" == *"echo omega"* ]] || exit 1
+' 2> /dev/null || fail 'multi-line PROMPT_COMMAND tail was dropped by hook assembly'
+pass 'multi-line PROMPT_COMMAND survives hook assembly'
+
+# [regression] a newline in BASH_HISTORY_USERNAME must not forge audit records.
+inject_home="$test_tmp_dir/inject-home"
+inject_dir="$test_tmp_dir/inject-audit"
+mkdir -p "$inject_home" "$inject_dir"
+env -i PATH="$PATH" HOME="$inject_home" RT="$runtime_dir" ADIR="$inject_dir" bash --noprofile --norc -c '
+	set -u
+	function dotfiles_dbg { :; }
+	source "$RT/functions.internal.d/00-common.bash"
+	source "$RT/functions.internal.d/10-history.bash"
+	export DOTFILES_AUDIT_DIR="$ADIR" DOTFILES_FEATURE_TRACK_COMMAND_DURATION=false
+	printf -v evil "%s" "victim
+2026-01-01T00:00:00+0000  forged                    exit:0    took:-           rm -rf /"
+	export BASH_HISTORY_USERNAME="$evil"
+	unset __dotfiles_audit_file_cached; audit_history_file_path > /dev/null
+	AF="$(audit_history_file_path)"
+	history -c; history -s "real-command"; last_cmd_exit_code=0
+	append_bash_history_audit
+	[ "$(wc -l < "$AF")" = 1 ] || exit 20
+	! grep -q "forged" "$AF" || exit 21
+	! grep -q "rm -rf /" "$AF" || exit 22
+' || fail "newline in BASH_HISTORY_USERNAME forged an audit record (exit $?)"
+pass 'newline in BASH_HISTORY_USERNAME cannot forge audit records'
+
 #!SECTION audit unit behavior
 audit_dir="$test_tmp_dir/audit"
 audit_home="$test_tmp_dir/audit-home"
@@ -425,6 +457,10 @@ pass 'migration ignores SUDO_USER unless actually running as root'
 #!SECTION bootstrap: user scope + legacy layouts
 user_fixture="$test_tmp_dir/user-install"
 mkdir -p "$user_fixture/.functions.internal.d" "$user_fixture/.aliases/bash"
+# A real dotted-layout install always carries a dotfiles-managed ~/.bash_profile;
+# migrate_legacy_layout only reclaims collision-prone dotted names when it sees
+# that marker (see the fresh-user test below).
+printf '%s\n' '# dotfiles' 'dotfiles_dbg "Executing .BASH_PROFILE"' > "$user_fixture/.bash_profile"
 printf '%s\n' '# legacy module' > "$user_fixture/.functions.internal.d/00-common.bash"
 printf '%s\n' '# legacy loader' > "$user_fixture/.functions"
 printf 'DOTFILES_FEATURE_PROFILE=light\n' > "$user_fixture/.dotfiles_features.local"
@@ -447,6 +483,29 @@ grep -q '^scope=user$' "$user_fixture/.config/dotfiles/.dotfiles-install" \
 grep -q '_DOTFILES_RUNTIME_LOADED' "$user_fixture/.bash_profile" \
 	|| fail 'per-user install did not place the stub profile'
 pass 'per-user install migrates legacy layouts and lands the stub + runtime'
+
+# [regression] A first-time user with no prior dotfiles install but their own
+# personal ~/.exports / ~/.functions must NOT have them silently deleted.
+fresh_fixture="$test_tmp_dir/fresh-user"
+mkdir -p "$fresh_fixture"
+printf 'export EDITOR=vim\n' > "$fresh_fixture/.exports"
+printf 'myfunc() { echo hi; }\n' > "$fresh_fixture/.functions"
+printf '# my prompt\n' > "$fresh_fixture/.bash_prompt"
+HOME="$fresh_fixture" \
+	DOTFILES_HOME="$fresh_fixture/.config/dotfiles" \
+	DOTFILES_LOCAL_HOME="$fresh_fixture/.config/dotfiles" \
+	DOTFILES_BOOTSTRAP_NO_SOURCE_PROFILE=true \
+	DOTFILES_BOOTSTRAP_SKIP_COMPLETION=true \
+	DOTFILES_BOOTSTRAP_NO_SUDO=true \
+	bash "$repo_dir/bootstrap.sh" --user --force > /dev/null \
+	|| fail 'fresh-user per-user bootstrap failed'
+[ "$(cat "$fresh_fixture/.exports")" = 'export EDITOR=vim' ] \
+	|| fail 'fresh user personal ~/.exports was destroyed by --user install'
+grep -q 'myfunc' "$fresh_fixture/.functions" \
+	|| fail 'fresh user personal ~/.functions was destroyed by --user install'
+[ -e "$fresh_fixture/.bash_prompt" ] \
+	|| fail 'fresh user personal ~/.bash_prompt was destroyed by --user install'
+pass 'a fresh user own dotfiles survive a --user install (no legacy marker)'
 
 #!SECTION update mechanism
 update_fixture="$test_tmp_dir/update-state"

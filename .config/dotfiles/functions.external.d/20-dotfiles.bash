@@ -96,8 +96,12 @@ function dotfiles_update {
 			;;
 	esac
 
-	if declare -F __dotfiles_read_install_metadata > /dev/null \
-		&& __dotfiles_read_install_metadata; then
+	# Note: __dotfiles_read_install_metadata returns non-zero when the recorded
+	# commit is unknown, but it still populates the scope/root/url/mode vars from
+	# the file. Use them regardless so an unknown-commit install keeps its manual
+	# guard and recorded source instead of silently falling back to defaults.
+	if declare -F __dotfiles_read_install_metadata > /dev/null; then
+		__dotfiles_read_install_metadata || true
 		install_scope="${__dotfiles_install_scope:-$install_scope}"
 		install_root="${__dotfiles_install_root:-$install_root}"
 		profile_d_dir="${__dotfiles_install_profile_d_dir:-$profile_d_dir}"
@@ -141,8 +145,11 @@ function dotfiles_update {
 		return 1
 	fi
 
+	# An update must not repoint repo_dir at the throwaway clone (which is
+	# deleted below); leave the user's existing checkout marker intact.
 	if ! DOTFILES_BOOTSTRAP_NO_SOURCE_PROFILE='true' \
 		DOTFILES_BOOTSTRAP_SKIP_COMPLETION='true' \
+		DOTFILES_BOOTSTRAP_PERSIST_REPO_DIR='false' \
 		DOTFILES_SYSTEM_INSTALL_ROOT="$install_root" \
 		DOTFILES_SYSTEM_PROFILE_D_DIR="$profile_d_dir" \
 		bash "$bootstrap_script" "${bootstrap_args[@]}"; then

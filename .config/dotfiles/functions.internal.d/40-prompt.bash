@@ -2,7 +2,13 @@
 # Prompt, timer, and prompt-hook orchestration.
 
 # https://stackoverflow.com/a/34812608
-function timer_now { date +%s%N; }
+function timer_now {
+	local now; now="$(date +%s%N)"
+	# BSD/macOS `date` leaves %N literal ("...N"); fall back to whole
+	# seconds (still nanosecond units) so the arithmetic stays valid.
+	case "$now" in *[!0-9]*) now="$(( $(date +%s) * 1000000000 ))" ;; esac
+	printf '%s\n' "$now"
+}
 
 function timer_start { timer_start=${timer_start:-$(timer_now)}; }
 
@@ -105,8 +111,10 @@ if [[ "${DOTFILES_FEATURE_TRACK_COMMAND_DURATION:-false}" == "true" ]]; then
 			fi
 
 			if [[ "$use_ps0" == 'true' ]]; then
+				# NOT exported: PS0 is expanded by this interactive shell
+				# only; a child shell without the runtime would inherit
+				# `timer_now` in PS0 and error before every command.
 				PS0="${ps0_timer_hook}${PS0:-}"
-				export PS0
 				# Keep timing start in one place (PS0); the shared DEBUG
 				# trap (10-history.bash) may still be installed for the
 				# audit capture, so only disarm the timer side here.
@@ -270,6 +278,9 @@ function add_prompt_command {
 	local prompt_parts=()
 	local normalized_prompt_command
 
+	# Fold newlines to ; first: `read` stops at the first newline, which
+	# would otherwise silently drop a multi-line PROMPT_COMMAND tail.
+	current_prompt_command="${current_prompt_command//$'\n'/;}"
 	IFS=';' read -r -a prompt_parts <<< "$current_prompt_command"
 	for prompt_part in "${prompt_parts[@]}"; do
 		prompt_part="${prompt_part#"${prompt_part%%[![:space:]]*}"}"
@@ -304,6 +315,9 @@ function remove_prompt_command {
 	local prompt_part
 	local prompt_parts=()
 
+	# Fold newlines to ; first: `read` stops at the first newline, which
+	# would otherwise silently drop a multi-line PROMPT_COMMAND tail.
+	current_prompt_command="${current_prompt_command//$'\n'/;}"
 	IFS=';' read -r -a prompt_parts <<< "$current_prompt_command"
 	for prompt_part in "${prompt_parts[@]}"; do
 		prompt_part="${prompt_part#"${prompt_part%%[![:space:]]*}"}"

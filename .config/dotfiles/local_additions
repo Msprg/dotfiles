@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-[[ $DOTFILES_DEBUG == "true" ]] && echo "[DOTFILE_DBG: Executing LOCAL_ADDITIONS]"
+[[ "${DOTFILES_DEBUG:-}" == "true" ]] && echo "[DOTFILE_DBG: Executing LOCAL_ADDITIONS]"
 
 # Installers (claude, codex, cursor-agent, nvm, conda, rustup, pnpm, ...)
 # append PATH/init lines to the end of ~/.bashrc or ~/.bash_profile. Both files
