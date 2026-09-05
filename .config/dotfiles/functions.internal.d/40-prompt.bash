@@ -2,7 +2,18 @@
 # Prompt, timer, and prompt-hook orchestration.
 
 # https://stackoverflow.com/a/34812608
+# Wall-clock nanoseconds. Prefer bash 5's EPOCHREALTIME (microsecond precision,
+# no subprocess) so the command timer costs no fork per command on modern bash;
+# fall back to `date` otherwise. Units stay nanoseconds either way.
 function timer_now {
+	if [ -n "${EPOCHREALTIME:-}" ]; then
+		# e.g. 1700000000.123456 (locale ',' handled) -> integer microseconds.
+		local us="${EPOCHREALTIME/[.,]/}"
+		case "$us" in
+			'' | *[!0-9]*) ;;                       # malformed; fall through
+			*) printf '%s\n' "${us}000"; return ;;  # scale us -> ns
+		esac
+	fi
 	local now; now="$(date +%s%N)"
 	# BSD/macOS `date` leaves %N literal ("...N"); fall back to whole
 	# seconds (still nanosecond units) so the arithmetic stays valid.
@@ -21,6 +32,27 @@ function __dotfiles_now_us {
 	else
 		printf '%s\n' "$(( $(timer_now) / 1000 ))"
 	fi
+}
+
+# Visible column width of a string: its length after removing ANSI escape
+# sequences (SGR color codes) and the readline non-printing markers (\001/\002).
+# The metadata buffer is colored, so its raw byte length overcounts columns;
+# sizing the divider off that made it stop short of the right margin. Result is
+# returned in the global __dotfiles_visible_width_result to avoid a subshell.
+function __dotfiles_visible_width {
+	local s="$1"
+	s="${s//$'\001'/}"
+	s="${s//$'\002'/}"
+	# Strip CSI sequences: ESC '[' <params> <final letter>.
+	while [[ "$s" == *$'\033['* ]]; do
+		local before="${s%%$'\033['*}"
+		local rest="${s#*$'\033['}"
+		local params="${rest%%[a-zA-Z]*}"
+		rest="${rest#"$params"}"
+		rest="${rest#?}"
+		s="${before}${rest}"
+	done
+	__dotfiles_visible_width_result="${#s}"
 }
 
 function format_duration_us {
@@ -88,6 +120,7 @@ __dotfiles_prompt_last_exit_code=0
 # the prompt file passes to prompt_git; they use the readline non-printing
 # markers directly so the cached value renders correctly when PS1 interpolates it.
 __dotfiles_proc_start_us=''
+__dotfiles_visible_width_result=0
 # Preserve, don't clobber: the prompt file (sourced before this one) sets the
 # pre/suf args when the custom prompt is on. Resetting them here would blank the
 # git segment's coloring/" on " separator.
@@ -312,7 +345,13 @@ function do_my_checks {
 
 		if [[ "$should_show_divider" == "true" ]]; then
 			divider_spacer="      " # add divider spacer / preamble
-			freecols=$((${COLUMNS:-80} - ${#combined_buff} - ${#divider_spacer}))
+			# Size the divider off the metadata's VISIBLE width, not its raw byte
+			# length: combined_buff carries ANSI color codes (and the proc-time
+			# readout added more), which would otherwise be miscounted as columns
+			# and leave the divider ending well short of the right margin.
+			__dotfiles_visible_width_result=0
+			__dotfiles_visible_width "$combined_buff"
+			freecols=$((${COLUMNS:-80} - __dotfiles_visible_width_result - ${#divider_spacer}))
 			(( freecols < 1 )) && freecols=1
 			divider="$(printf '%*s' "$freecols" '' | tr ' ' '-')"
 			printf "%s%s%s%s" "$c_brightred" "$divider_spacer" "$divider" "$c_reset"

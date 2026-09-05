@@ -298,6 +298,25 @@ env -i PATH="$PATH" "${hook_env[@]}" bash --noprofile --norc -i -c '
 ' 2> /dev/null || fail 'prompt processing time should be off in the minimal profile'
 pass 'prompt processing time shown in full (git cached), off in minimal'
 
+# [regression] The metadata divider is sized off the VISIBLE width of the
+# colored metadata buffer. Counting the raw byte length (ANSI color codes
+# included, and the proc-time readout added more) left the divider ending well
+# short of the right margin. __dotfiles_visible_width must strip SGR sequences
+# and readline markers so metadata_visible + spacer + divider == COLUMNS.
+env -i PATH="$PATH" "${hook_env[@]}" DOTFILES_FEATURE_PROFILE=full \
+	DOTFILES_FEATURE_HISTORY_AUDIT=false bash --noprofile --norc -i -c '
+	source "$HOME/.bash_profile" >/dev/null 2>&1
+	declare -F __dotfiles_visible_width >/dev/null || exit 1
+	colored=$'"'"'\001\033[38;5;15m\002(305ms)\001\033[0m\002 X\033[1;31mY'"'"'
+	__dotfiles_visible_width_result=-1
+	__dotfiles_visible_width "$colored"
+	# Visible characters: "(305ms) XY" == 10.
+	[ "$__dotfiles_visible_width_result" -eq 10 ] || exit 2
+	__dotfiles_visible_width ""
+	[ "$__dotfiles_visible_width_result" -eq 0 ] || exit 3
+' 2> /dev/null || fail 'divider width must count visible columns, not ANSI/readline bytes'
+pass 'metadata divider sizes off visible width, ignoring color codes'
+
 # [regression] multi-line PROMPT_COMMAND must not lose its tail to the ; split.
 env -i PATH="$PATH" "${hook_env[@]}" DOTFILES_FEATURE_PROFILE=full bash --noprofile --norc -i -c '
 	PROMPT_COMMAND=$'"'"'echo alpha\necho omega'"'"'
