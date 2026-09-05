@@ -233,10 +233,12 @@ Dotfiles repo resolution order used by update checks (user scope):
 
 ## Runtime Validation
 
-`bash tests/bash-runtime.sh` — 23 checks (syntax, loaders, profiles, bootstrap
-scopes, migration safety, update pipeline, audit writer/viewer), fixture-based,
-no root required. Run it after changing anything under `.config/dotfiles/`,
-`bootstrap.sh` or the rc stubs.
+`bash tests/bash-runtime.sh` — fixture-based checks (syntax, loaders, profiles,
+bootstrap scopes, migration safety, update pipeline, audit writer/viewer), no
+root required. Run it after changing anything under `.config/dotfiles/`,
+`bootstrap.sh` or the rc stubs. See `TESTING.md` for the two testing tiers,
+including the encouraged (but optional) Docker multi-user SSH fixtures for
+changes to the audit identity, escalation handling, or system bootstrap.
 
 ## Other Notable Files
 
