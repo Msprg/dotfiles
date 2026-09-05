@@ -123,22 +123,28 @@ function _dotfiles_source_metadata() {
 	local origin_head_ref='';
 	local configured_url='';
 	local tracked_commit='';
+	# A system install often runs as root against a checkout owned by another
+	# user (git clone + `sudo bootstrap.sh --system`). Git's dubious-ownership
+	# guard then fails every command here, so metadata silently degraded to
+	# installed_commit=unknown / update_mode=manual, permanently disabling
+	# dotfiles_update. Trust this one source dir for these read-only queries.
+	local git_src=(git -c "safe.directory=$DOTFILES_BOOTSTRAP_SOURCE_DIR" -C "$DOTFILES_BOOTSTRAP_SOURCE_DIR");
 
-	if git -C "$DOTFILES_BOOTSTRAP_SOURCE_DIR" rev-parse --is-inside-work-tree > /dev/null 2>&1; then
-		configured_url="$(git -C "$DOTFILES_BOOTSTRAP_SOURCE_DIR" config --get remote.origin.url 2> /dev/null || true)";
+	if "${git_src[@]}" rev-parse --is-inside-work-tree > /dev/null 2>&1; then
+		configured_url="$("${git_src[@]}" config --get remote.origin.url 2> /dev/null || true)";
 		[ -n "$configured_url" ] && source_url="$configured_url";
-		installed_commit="$(git -C "$DOTFILES_BOOTSTRAP_SOURCE_DIR" rev-parse HEAD 2> /dev/null || printf '%s' 'unknown')";
-		if [ -n "$(git -C "$DOTFILES_BOOTSTRAP_SOURCE_DIR" status --porcelain 2> /dev/null)" ]; then
+		installed_commit="$("${git_src[@]}" rev-parse HEAD 2> /dev/null || printf '%s' 'unknown')";
+		if [ -n "$("${git_src[@]}" status --porcelain 2> /dev/null)" ]; then
 			installed_commit="${installed_commit}-dirty";
 		fi;
-		origin_head_ref="$(git -C "$DOTFILES_BOOTSTRAP_SOURCE_DIR" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2> /dev/null || true)";
+		origin_head_ref="$("${git_src[@]}" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2> /dev/null || true)";
 		if [[ "$origin_head_ref" == origin/* ]]; then
 			source_branch="${origin_head_ref#origin/}";
 		else
-			source_branch="$(git -C "$DOTFILES_BOOTSTRAP_SOURCE_DIR" branch --show-current 2> /dev/null || true)";
+			source_branch="$("${git_src[@]}" branch --show-current 2> /dev/null || true)";
 			[ -n "$source_branch" ] || source_branch='main';
 		fi;
-		tracked_commit="$(git -C "$DOTFILES_BOOTSTRAP_SOURCE_DIR" rev-parse "refs/remotes/origin/$source_branch" 2> /dev/null || true)";
+		tracked_commit="$("${git_src[@]}" rev-parse "refs/remotes/origin/$source_branch" 2> /dev/null || true)";
 		if [ "$installed_commit" = "$tracked_commit" ]; then
 			update_mode='remote';
 		fi;
@@ -676,7 +682,7 @@ function _migrate_legacy_user_install() {
 
 	unset -f _backup_move;
 	if [ "$moved_any" = 'true' ]; then
-		printf 'Legacy per-user install deactivated; backup in %s\n' "${backup_dir/#$HOME/\~}";
+		printf 'Legacy per-user install deactivated; backup in %s\n' "${backup_dir/#$target_home/\~}";
 		printf '%s\n' 'Preserved user-local overrides: ~/.extra, ~/.systemspecific, and everything *.local in ~/.config/dotfiles.';
 	else
 		rmdir "$backup_dir" 2> /dev/null || true;

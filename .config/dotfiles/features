@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-[[ $DOTFILES_DEBUG == "true" ]] && echo "[DOTFILE_DBG: Executing .DOTFILES_FEATURES]"
+[[ "${DOTFILES_DEBUG:-}" == "true" ]] && echo "[DOTFILE_DBG: Executing .DOTFILES_FEATURES]"
 
 if ! declare -F dotfiles_dbg > /dev/null; then
 	function dotfiles_dbg {
 		# Always return 0: callers routinely end with a dbg line, and a
 		# fall-through rc of 1 (debug off) would corrupt their exit status.
-		[[ "$DOTFILES_DEBUG" == "true" ]] && printf '[DOTFILE_DBG: %s]\n' "$*"
+		[[ "${DOTFILES_DEBUG:-}" == "true" ]] && printf '[DOTFILE_DBG: %s]\n' "$*"
 		return 0
 	}
 fi
@@ -211,7 +211,14 @@ if ! [[ "${DOTFILES_FEATURE_DOTFILES_UPDATE_CHECK_INTERVAL_SECONDS:-}" =~ ^[0-9]
 	DOTFILES_FEATURE_DOTFILES_UPDATE_CHECK_INTERVAL_SECONDS=43200
 fi
 
-export DOTFILES_FEATURE_PROFILE
+# Deliberately NOT exported: the pre-pass treats an env-provided
+# DOTFILES_FEATURE_PROFILE as an authoritative per-invocation override
+# (so `DOTFILES_FEATURE_PROFILE=full bash -l` works). Exporting it turned that
+# one-shot into an inheritance: every child login shell (tmux pane, nested
+# `bash -l`, ssh sub-shell) then kept the parent's profile and overrode the
+# user's own features.local. Keeping it a plain shell variable lets same-shell
+# consumers (prompt hooks, `dotfiles_profile show`) read it while children
+# re-derive the profile from features.local.
 export DOTFILES_FEATURE_PROMPT_METADATA_MODE
 export DOTFILES_FEATURE_PROMPT_LONG_COMMAND_US
 export DOTFILES_FEATURE_PROMPT_DIVIDER_THRESHOLD_US

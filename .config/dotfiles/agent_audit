@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-[[ $DOTFILES_DEBUG == "true" ]] && echo "[DOTFILE_DBG: Executing .DOTFILES_AGENT_AUDIT]"
+[[ "${DOTFILES_DEBUG:-}" == "true" ]] && echo "[DOTFILE_DBG: Executing .DOTFILES_AGENT_AUDIT]"
 
 # Lightweight command audit for agent-mode shells (sourced by the runtime
 # bash_profile only when the agent guard is active). Records go to a separate
@@ -56,8 +56,19 @@ function __dotfiles_agent_audit_session_id {
 	printf '%s\n' "$sid"
 }
 
+# The kernel login uid: the uid that owns a legitimate seed file for this
+# session (see functions.internal.d/10-history.bash). Used to reject a seed
+# planted by another local user in the 1733 map dir.
+function __dotfiles_agent_audit_loginuid {
+	local uid=''
+	[ -r /proc/self/loginuid ] || return 1
+	IFS= read -r uid < /proc/self/loginuid 2> /dev/null
+	case "$uid" in '' | *[!0-9]* | 4294967295) return 1 ;; esac
+	printf '%s\n' "$uid"
+}
+
 function __dotfiles_agent_audit_identity {
-	local identity="${BASH_HISTORY_USERNAME:-}" sid dir file recovered
+	local identity="${BASH_HISTORY_USERNAME:-}" sid dir file recovered owner_uid login_uid
 	local re='^[A-Za-z0-9_@][A-Za-z0-9._@-]{0,63}$'
 	dir="${DOTFILES_AUDIT_SESSION_DIR:-/run/dotfiles-audit/sessions}"
 	if [ -n "$identity" ] && [[ "$identity" =~ $re ]]; then
@@ -72,7 +83,13 @@ function __dotfiles_agent_audit_identity {
 	fi
 	if sid="$(__dotfiles_agent_audit_session_id)"; then
 		file="$dir/$sid"
-		if [ -r "$file" ]; then
+		# Trust the seed only if it is owned by this login session's uid; a file
+		# planted by another local user (the map dir is 1733) must not forge the
+		# recovered identity. See the fuller note in 10-history.bash.
+		if [ -r "$file" ] \
+			&& login_uid="$(__dotfiles_agent_audit_loginuid)" \
+			&& owner_uid="$(stat -c %u "$file" 2> /dev/null || stat -f %u "$file" 2> /dev/null)" \
+			&& [ "$owner_uid" = "$login_uid" ]; then
 			IFS= read -r recovered < "$file" 2> /dev/null
 			if [ -n "$recovered" ] && [[ "$recovered" =~ $re ]]; then
 				printf '%s\n' "$recovered"

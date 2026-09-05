@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-[[ $DOTFILES_DEBUG == "true" ]] && echo "[DOTFILE_DBG: Executing .PATH_DEFAULTS]"
+[[ "${DOTFILES_DEBUG:-}" == "true" ]] && echo "[DOTFILE_DBG: Executing .PATH_DEFAULTS]"
 
 # Well-known per-user tool directories. Installers (claude, codex, cursor-agent,
 # pipx/uv, cargo, go, bun, deno, pnpm, volta, ...) try to add these by appending
@@ -54,7 +54,7 @@ if [ -z "${PNPM_HOME:-}" ] && [ -d "$HOME/.local/share/pnpm" ]; then
 	export PNPM_HOME="$HOME/.local/share/pnpm"
 fi
 
-[[ "$DOTFILES_DEBUG" == "true" ]] && echo "[DOTFILE_DBG: .PATH_DEFAULTS resolved PATH=$PATH]"
+[[ "${DOTFILES_DEBUG:-}" == "true" ]] && echo "[DOTFILE_DBG: .PATH_DEFAULTS resolved PATH=$PATH]"
 
 unset __dotfiles_path_defaults __dotfiles_path_i
 unset -f __dotfiles_path_prepend

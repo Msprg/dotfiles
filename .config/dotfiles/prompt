@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-[[ $DOTFILES_DEBUG == true ]] && echo "[DOTFILE_DBG: Executing .BASH_PROMPT]"
+[[ "${DOTFILES_DEBUG:-}" == true ]] && echo "[DOTFILE_DBG: Executing .BASH_PROMPT]"
 # Shell prompt based on the Solarized Dark theme.
 # Screenshot: http://i.imgur.com/EkEtphC.png
 # Heavily inspired by @necolas’s prompt: https://github.com/necolas/dotfiles
@@ -8,13 +8,13 @@
 if [[ "${DOTFILES_FEATURE_CUSTOM_PROMPT:-false}" == "true" ]]; then
 	if [[ $COLORTERM = gnome-* && $TERM = xterm ]] && infocmp gnome-256color >/dev/null 2>&1; then
 		export TERM='gnome-256color';
-		[[ "$DOTFILES_DEBUG" == "true" ]] && echo "[DOTFILE_DBG: .BASH_PROMPT set TERM=gnome-256color]"
+		[[ "${DOTFILES_DEBUG:-}" == "true" ]] && echo "[DOTFILE_DBG: .BASH_PROMPT set TERM=gnome-256color]"
 	elif infocmp xterm-256color >/dev/null 2>&1; then
 		export TERM='xterm-256color';
-		[[ "$DOTFILES_DEBUG" == "true" ]] && echo "[DOTFILE_DBG: .BASH_PROMPT set TERM=xterm-256color]"
+		[[ "${DOTFILES_DEBUG:-}" == "true" ]] && echo "[DOTFILE_DBG: .BASH_PROMPT set TERM=xterm-256color]"
 	fi;
 else
-	[[ "$DOTFILES_DEBUG" == "true" ]] && echo "[DOTFILE_DBG: DOTFILES_FEATURE_CUSTOM_PROMPT=false; .BASH_PROMPT will not override TERM or PS1]"
+	[[ "${DOTFILES_DEBUG:-}" == "true" ]] && echo "[DOTFILE_DBG: DOTFILES_FEATURE_CUSTOM_PROMPT=false; .BASH_PROMPT will not override TERM or PS1]"
 fi
 
 prompt_git() {
@@ -119,7 +119,7 @@ else
 fi;
 
 if [[ "${DOTFILES_FEATURE_CUSTOM_PROMPT:-false}" != "true" ]]; then
-	[[ "$DOTFILES_DEBUG" == "true" ]] && echo "[DOTFILE_DBG: .BASH_PROMPT exiting early without PS1/PS2 override]"
+	[[ "${DOTFILES_DEBUG:-}" == "true" ]] && echo "[DOTFILE_DBG: .BASH_PROMPT exiting early without PS1/PS2 override]"
 	return 0
 fi
 
@@ -189,4 +189,4 @@ case ";${PROMPT_COMMAND:-};" in
 	*";__dotfiles_prompt_reapply;"*) ;;
 	*) PROMPT_COMMAND="__dotfiles_prompt_reapply${PROMPT_COMMAND:+;$PROMPT_COMMAND}" ;;
 esac
-[[ "$DOTFILES_DEBUG" == "true" ]] && echo "[DOTFILE_DBG: .BASH_PROMPT applied custom PS1/PS2]"
+[[ "${DOTFILES_DEBUG:-}" == "true" ]] && echo "[DOTFILE_DBG: .BASH_PROMPT applied custom PS1/PS2]"

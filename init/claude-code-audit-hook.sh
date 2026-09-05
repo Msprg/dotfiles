@@ -51,8 +51,19 @@ audit_session_id() {
 	printf '%s\n' "$sid"
 }
 
+# The kernel login uid: owner of a legitimate seed file for this session; used
+# to reject a seed planted by another local user in the 1733 map dir (keep in
+# sync with functions.internal.d/10-history.bash).
+audit_loginuid() {
+	local uid=''
+	[ -r /proc/self/loginuid ] || return 1
+	IFS= read -r uid < /proc/self/loginuid 2> /dev/null
+	case "$uid" in '' | *[!0-9]* | 4294967295) return 1 ;; esac
+	printf '%s\n' "$uid"
+}
+
 audit_identity() {
-	local identity="${BASH_HISTORY_USERNAME:-}" sid dir file recovered
+	local identity="${BASH_HISTORY_USERNAME:-}" sid dir file recovered owner_uid login_uid
 	local re='^[A-Za-z0-9_@][A-Za-z0-9._@-]{0,63}$'
 	dir="${DOTFILES_AUDIT_SESSION_DIR:-/run/dotfiles-audit/sessions}"
 	if [ -n "$identity" ] && [[ "$identity" =~ $re ]]; then
@@ -67,7 +78,12 @@ audit_identity() {
 	fi
 	if sid="$(audit_session_id)"; then
 		file="$dir/$sid"
-		if [ -r "$file" ]; then
+		# Trust the seed only if owned by this login session's uid; a file
+		# planted by another local user (1733 map dir) must not forge identity.
+		if [ -r "$file" ] \
+			&& login_uid="$(audit_loginuid)" \
+			&& owner_uid="$(stat -c %u "$file" 2> /dev/null || stat -f %u "$file" 2> /dev/null)" \
+			&& [ "$owner_uid" = "$login_uid" ]; then
 			IFS= read -r recovered < "$file" 2> /dev/null
 			if [ -n "$recovered" ] && [[ "$recovered" =~ $re ]]; then
 				printf '%s\n' "$recovered"

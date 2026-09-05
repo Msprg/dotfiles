@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-[[ $DOTFILES_DEBUG == "true" ]] && echo "[DOTFILE_DBG: Executing .EXPORTS]"
+[[ "${DOTFILES_DEBUG:-}" == "true" ]] && echo "[DOTFILE_DBG: Executing .EXPORTS]"
 
 # Add `~/bin` to the `$PATH`
 case ":$PATH:" in
@@ -45,10 +45,10 @@ export MANPAGER='less -X';
 
 if [[ "${DOTFILES_FEATURE_HISTORY_TIMESTAMPS:-false}" == "true" ]]; then
 	export HISTTIMEFORMAT='%Y-%m-%d %T '
-	[[ "$DOTFILES_DEBUG" == "true" ]] && echo "[DOTFILE_DBG: .EXPORTS enabled HISTTIMEFORMAT]"
+	[[ "${DOTFILES_DEBUG:-}" == "true" ]] && echo "[DOTFILE_DBG: .EXPORTS enabled HISTTIMEFORMAT]"
 else
 	unset HISTTIMEFORMAT
-	[[ "$DOTFILES_DEBUG" == "true" ]] && echo "[DOTFILE_DBG: .EXPORTS disabled HISTTIMEFORMAT]"
+	[[ "${DOTFILES_DEBUG:-}" == "true" ]] && echo "[DOTFILE_DBG: .EXPORTS disabled HISTTIMEFORMAT]"
 fi
 #export MAILCHECK=
 #export LC_CTYPE=en_US.UTF-8

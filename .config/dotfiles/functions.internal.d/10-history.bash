@@ -77,6 +77,25 @@ function __dotfiles_audit_session_dir {
 	printf '%s\n' "${DOTFILES_AUDIT_SESSION_DIR:-/run/dotfiles-audit/sessions}"
 }
 
+# The kernel login uid (/proc/self/loginuid): the uid that opened this login
+# session, set once by PAM and inherited unchanged across su/sudo (like the
+# session id). It is the uid that owns the legitimate seed file for this
+# session, so recovery uses it to reject a seed planted by any other user.
+function __dotfiles_audit_loginuid {
+	local uid=''
+	[ -r /proc/self/loginuid ] || return 1
+	IFS= read -r uid < /proc/self/loginuid 2> /dev/null
+	case "$uid" in '' | *[!0-9]* | 4294967295) return 1 ;; esac
+	printf '%s\n' "$uid"
+}
+
+function __dotfiles_audit_file_owner_uid {
+	local uid
+	uid="$(stat -c %u "$1" 2> /dev/null || stat -f %u "$1" 2> /dev/null)" || return 1
+	case "$uid" in '' | *[!0-9]*) return 1 ;; esac
+	printf '%s\n' "$uid"
+}
+
 function __dotfiles_audit_seed_session {
 	local identity="$1" create_only="${2:-false}" sid dir file existing
 	sid="$(__dotfiles_audit_session_id)" || return 0
@@ -98,11 +117,27 @@ function __dotfiles_audit_seed_session {
 }
 
 function __dotfiles_audit_recover_session {
-	local sid dir file identity
+	local sid dir file identity owner_uid login_uid
 	sid="$(__dotfiles_audit_session_id)" || return 1
 	dir="$(__dotfiles_audit_session_dir)"
 	file="$dir/$sid"
 	[ -r "$file" ] || return 1
+	# Trust the seed only if it is owned by the uid that owns THIS login session
+	# (the kernel loginuid). The map dir is 1733 — world-writable — so any local
+	# user can pre-create a session file for an id they do not own; the sticky
+	# bit then stops the real login shell from overwriting it. Without this
+	# check an escalated (even root) shell would adopt that planted identity,
+	# letting an unrelated local account forge who a privileged shell is audited
+	# as. A legitimate seed is written by the session's own login shell and is
+	# therefore owned by the loginuid; a planted one is not. If either value is
+	# unavailable (no audit login uid), refuse to recover rather than trust an
+	# unverifiable file.
+	login_uid="$(__dotfiles_audit_loginuid)" || return 1
+	owner_uid="$(__dotfiles_audit_file_owner_uid "$file")" || return 1
+	if [ "$owner_uid" != "$login_uid" ]; then
+		dotfiles_dbg ".FUNCTIONS audit session recover rejected: '$file' owned by uid $owner_uid != loginuid $login_uid (possible planted identity)" >&2
+		return 1
+	fi
 	IFS= read -r identity < "$file" 2> /dev/null
 	[ -n "$identity" ] && __dotfiles_audit_sanitize_identity "$identity" || return 1
 	printf '%s\n' "$identity"
@@ -382,6 +417,25 @@ function append_bash_history_audit {
 	local capture_seen="${__dotfiles_audit_capture_seen:-0}"
 	local captured_cmd="${__dotfiles_audit_captured_cmd:-}"
 
+	# Skip the pre-first-command prompt of an interactive shell. The very first
+	# PROMPT_COMMAND cycle runs before the user has typed anything, so `history 1`
+	# is the last command inherited from the previous session via HISTFILE, not a
+	# command run here. Recording it fabricates a phantom entry (fresh timestamp,
+	# exit:0) — or rewrites the previous record's timestamp — at every login.
+	# HISTCMD does not advance past its start-of-shell value until the user
+	# actually runs something, which distinguishes the inherited entry from a
+	# freshly typed first command (and from a fresh shell with no history).
+	# Non-interactive callers (the unit tests drive append directly) are exempt.
+	if [[ $- == *i* ]]; then
+		if [ -z "${__dotfiles_audit_start_histcmd:-}" ]; then
+			__dotfiles_audit_start_histcmd="${HISTCMD:-0}"
+		fi
+		if [ "${HISTCMD:-0}" = "$__dotfiles_audit_start_histcmd" ]; then
+			dotfiles_dbg ".FUNCTIONS audit append skipped: pre-first-command prompt (HISTCMD=${HISTCMD:-0} unchanged since shell start; inherited history not re-audited)"
+			return 0
+		fi
+	fi
+
 	history_event="$(last_history_event_id_for_audit)" || return 0
 	current_histfile="${HISTFILE:-$HOME/.bash_history}"
 	history_key="${current_histfile}:${history_event}"
@@ -529,15 +583,32 @@ function __dotfiles_debug_trap_hook {
 		# timer on them. do_my_checks clears the timer; a start stamp taken on
 		# the trailing capture-arm step would date the next command from the
 		# moment the prompt was drawn and report idle time as its duration.
-		__dotfiles_* | do_my_checks | capture_prompt_exit_status | timer_stop | append_bash_history_audit) ;;
+		# Clearing the boundary flag here means an externally-appended
+		# PROMPT_COMMAND part that runs after ours is treated as prompt-internal
+		# too; PS0 re-sets the flag right before the actual user command.
+		__dotfiles_* | do_my_checks | capture_prompt_exit_status | timer_stop | append_bash_history_audit)
+			__dotfiles_at_user_command=''
+			;;
 		*)
-			if [ "${__dotfiles_audit_capture_armed:-0}" = 1 ]; then
-				__dotfiles_audit_capture_armed=0
-				__dotfiles_audit_captured_cmd="$BASH_COMMAND"
-				__dotfiles_audit_capture_seen=1
-			fi
-			if [ "${__dotfiles_debug_timer_armed:-0}" = 1 ]; then
-				timer_start
+			# With the PS0 boundary active (full/light on bash >= 4.4), only the
+			# user's command — which PS0 marks by setting the flag just before it
+			# runs — arms the timer and consumes the capture; a stray
+			# PROMPT_COMMAND part added by another tool (e.g. an appended
+			# `history -a`) runs with the flag cleared and is ignored, so idle
+			# prompt time is no longer counted as the next command's duration.
+			# When the boundary is inactive (bash < 4.4, no PS0; or the timer is
+			# off), fall back to arming on the first non-excluded command.
+			if [ "${__dotfiles_prompt_boundary_active:-0}" = 1 ] && [ "${__dotfiles_at_user_command:-}" != 1 ]; then
+				:
+			else
+				if [ "${__dotfiles_audit_capture_armed:-0}" = 1 ]; then
+					__dotfiles_audit_capture_armed=0
+					__dotfiles_audit_captured_cmd="$BASH_COMMAND"
+					__dotfiles_audit_capture_seen=1
+				fi
+				if [ "${__dotfiles_debug_timer_armed:-0}" = 1 ]; then
+					timer_start
+				fi
 			fi
 			;;
 	esac
@@ -633,9 +704,18 @@ function changing_directory {
 
 #!SECTION module state
 __dotfiles_last_audit_history_key=''
+# Set on the first interactive append; commands are only audited once HISTCMD
+# has advanced past it (see append_bash_history_audit's pre-first-command skip).
+__dotfiles_audit_start_histcmd=''
 __dotfiles_audit_capture_armed=0
 __dotfiles_audit_capture_seen=0
 __dotfiles_audit_captured_cmd=''
+# PS0 prompt boundary (see __dotfiles_debug_trap_hook and the timer install in
+# 40-prompt.bash). boundary_active is turned on only when a PS0 marker can mark
+# the user-command boundary; at_user_command is set to 1 by that PS0 marker and
+# cleared by our PROMPT_COMMAND parts.
+__dotfiles_prompt_boundary_active=0
+__dotfiles_at_user_command=''
 # Resolve the audit paths once at load time (in the parent shell, so the
 # cache actually persists); ensure_audit_history_file re-resolves on failure.
 __dotfiles_audit_file_cached=''

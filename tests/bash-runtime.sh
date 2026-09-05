@@ -149,6 +149,29 @@ env -i PATH="$PATH" "${profile_env[@]}" DOTFILES_FEATURE_PROFILE=bogus bash --no
 ' 2> /dev/null || fail 'unknown environment profile was not rejected'
 pass 'environment-requested profile is honored and validated'
 
+# [regression] DOTFILES_FEATURE_PROFILE must not be exported: an exported value
+# leaked into every child login shell (tmux pane, nested bash -l) and overrode
+# the user's own features.local there. An explicitly-typed env value still wins
+# for that one invocation, but a child that inherits nothing re-derives from the
+# local file.
+leak_home="$test_tmp_dir/profile-leak-home"
+mkdir -p "$leak_home/.config/dotfiles"
+cp "$repo_dir/.bash_profile" "$repo_dir/.bashrc" "$leak_home/"
+printf 'DOTFILES_FEATURE_PROFILE=full\n' > "$leak_home/.config/dotfiles/features.local"
+env -i PATH="$PATH" HOME="$leak_home" TERM=dumb DOTFILES_HOME="$runtime_dir" \
+	DOTFILES_LOCAL_HOME="$leak_home/.config/dotfiles" DOTFILES_FEATURE_HISTORY_AUDIT=false \
+	bash --noprofile --norc -i -c '
+	source "$HOME/.bash_profile" >/dev/null 2>&1
+	[ "$DOTFILES_FEATURE_PROFILE" = full ] || exit 1        # features.local chose full
+	# The user switches back to minimal for future shells.
+	printf "DOTFILES_FEATURE_PROFILE=minimal\n" > "$DOTFILES_LOCAL_HOME/features.local"
+	# A child login shell must re-derive from features.local, not inherit an
+	# exported profile from this parent.
+	child="$(bash --noprofile --norc -i -c "source \$HOME/.bash_profile >/dev/null 2>&1; printf %s \"\$DOTFILES_FEATURE_PROFILE\"" 2>/dev/null)"
+	[ "$child" = minimal ] || { printf "child=%s\n" "$child" >&2; exit 3; }
+' 2> /dev/null || fail 'exported DOTFILES_FEATURE_PROFILE leaked into a child shell over features.local'
+pass 'DOTFILES_FEATURE_PROFILE is not exported; child shells honor features.local'
+
 env -i PATH="$PATH" HOME="$stub_home" TERM=dumb DOTFILES_HOME="$runtime_dir" BASH_SAFE_MODE=true \
 	bash --noprofile --norc -i -c '
 	source "$HOME/.bash_profile" >/dev/null 2>&1
@@ -229,21 +252,30 @@ env -i PATH="$PATH" "${hook_env[@]}" bash --noprofile --norc -i -c '
 ' 2> /dev/null || fail 'minimal profile touched PS1 set by a later ~/.bashrc'
 pass 'custom prompt re-applies over a distro ~/.bashrc PS1 only when enabled'
 
-# [regression] The DEBUG-trap timer must not be re-armed by our own
-# PROMPT_COMMAND parts (the trailing capture-arm step ran after timer_stop and
-# dated the next command from prompt time, reporting idle time as duration).
-# Checks live in __dotfiles_* functions so the trap ignores the checks themselves.
+# [regression] The DEBUG-trap timer must start on the USER's command, not on a
+# PROMPT_COMMAND part — including one appended by another tool AFTER our chain
+# (e.g. `history -a`). A PS0 marker sets the boundary flag right before the user
+# command; prompt parts run with it cleared and must not arm the timer, or idle
+# prompt time is counted as the next command's duration.
 env -i PATH="$PATH" "${hook_env[@]}" DOTFILES_FEATURE_PROFILE=full bash --noprofile --norc -i -c '
 	source "$HOME/.bash_profile" >/dev/null 2>&1
 	[[ "$(trap -p DEBUG)" == *__dotfiles_debug_trap_hook* ]] || exit 1
-	__dotfiles_t_unset() { [ -z "${timer_start:-}" ]; }
-	__dotfiles_t_set() { [ -n "${timer_start:-}" ]; }
+	[ "${__dotfiles_prompt_boundary_active:-0}" = 1 ] || exit 2
+	[[ "${PS0:-}" == *__dotfiles_at_user_command* ]] || exit 3
+	# Another tool appends to PROMPT_COMMAND after our chain.
+	PROMPT_COMMAND="$PROMPT_COMMAND; history -a"
+	# A prompt cycle runs our parts AND the appended external part.
 	eval "$PROMPT_COMMAND" >/dev/null 2>&1
-	__dotfiles_t_unset || exit 1
+	# After the prompt (before the user command) the timer must be unset and the
+	# boundary cleared, even though history -a ran as a prompt part.
+	[ -z "${timer_start:-}" ] || exit 4
+	[ "${__dotfiles_at_user_command:-}" != 1 ] || exit 5
+	# PS0 fires right before the user command, setting the boundary.
+	__dotfiles_at_user_command=1
 	true
-	__dotfiles_t_set || exit 1
-' 2> /dev/null || fail 'DEBUG-trap timer was re-armed by PROMPT_COMMAND (idle time counted as duration)'
-pass 'command timer starts on the user command, not on the prompt hooks'
+	[ -n "${timer_start:-}" ] || exit 6
+' 2> /dev/null || fail 'command timer must start on the user command, not on a (possibly appended) PROMPT_COMMAND part'
+pass 'command timer starts on the user command via the PS0 boundary, not on prompt hooks (even appended ones)'
 
 # [regression] multi-line PROMPT_COMMAND must not lose its tail to the ; split.
 env -i PATH="$PATH" "${hook_env[@]}" DOTFILES_FEATURE_PROFILE=full bash --noprofile --norc -i -c '
@@ -454,6 +486,35 @@ grep -q 'exit:2 .*ls /nonexistent-dup-test' "$audit_log" \
 ! grep -q 'SECRET\|hunter2' "$audit_log" || fail 'space-prefixed command leaked into the audit'
 grep -q 'echo done' "$audit_log" || fail 'ordinary command missing from the audit'
 pass 'interactive minimal-profile audit records, collapses duplicates, honors the space opt-out'
+
+# [regression] A new interactive login must NOT re-audit the previous session's
+# last command (inherited via HISTFILE). The first PROMPT_COMMAND cycle runs
+# before the user types anything, so its `history 1` is the prior session's last
+# entry; recording it fabricated a phantom line (fresh timestamp, exit:0) at
+# every login.
+reaudit_home="$test_tmp_dir/reaudit-home"
+reaudit_audit="$test_tmp_dir/reaudit-audit"
+mkdir -p "$reaudit_home" "$reaudit_audit"
+cp "$repo_dir/.bash_profile" "$repo_dir/.bashrc" "$reaudit_home/"
+env -i PATH="$PATH" HOME="$reaudit_home" TERM=dumb DOTFILES_HOME="$runtime_dir" \
+	DOTFILES_AUDIT_DIR="$reaudit_audit" BASH_HISTORY_USERNAME=ruser \
+	bash --noprofile --norc -i > /dev/null 2>&1 <<'S1'
+source ~/.bash_profile
+echo session-one-cmd
+S1
+env -i PATH="$PATH" HOME="$reaudit_home" TERM=dumb DOTFILES_HOME="$runtime_dir" \
+	DOTFILES_AUDIT_DIR="$reaudit_audit" BASH_HISTORY_USERNAME=ruser \
+	bash --noprofile --norc -i > /dev/null 2>&1 <<'S2'
+source ~/.bash_profile
+echo session-two-cmd
+S2
+reaudit_log="$reaudit_audit/ruser.log"
+[ -s "$reaudit_log" ] || fail 'first-prompt re-audit test produced no records'
+[ "$(grep -c 'echo session-one-cmd' "$reaudit_log")" = 1 ] \
+	|| fail "previous session's last command was re-audited at the next login (phantom record)"
+grep -q 'echo session-two-cmd' "$reaudit_log" \
+	|| fail 'second session command missing from the audit'
+pass 'a new login does not re-audit the previous session inherited last command'
 
 #!SECTION viewer
 env -i PATH="$PATH" HOME="$e2e_audit_home" DOTFILES_HOME="$runtime_dir" \

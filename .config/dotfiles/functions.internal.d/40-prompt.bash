@@ -123,11 +123,29 @@ if [[ "${DOTFILES_FEATURE_TRACK_COMMAND_DURATION:-false}" == "true" ]]; then
 				dotfiles_dbg ".FUNCTIONS installed PS0 hook for timer_start (method=${requested_method})"
 			else
 				__dotfiles_debug_timer_armed=1
+				# PS0 is expanded once, right before the user's command runs, and
+				# never for PROMPT_COMMAND parts. Mark that boundary so the DEBUG
+				# trap starts the timer (and consumes the capture arm) on the
+				# user command only — not on a PROMPT_COMMAND part appended by
+				# another tool (e.g. `history -a`), which would otherwise date
+				# the command from prompt-draw time and count idle as duration.
+				# Same non-printing clear sequences as the timer marker.
+				local ps0_boundary_marker='${__dotfiles_at_user_command:=1}'
+				local ps0_boundary_hook=$'\r\033[2K'"${ps0_boundary_marker}"$'\r\033[2K'
+				if [[ "${PS0:-}" == *"$ps0_boundary_hook"* ]]; then
+					PS0="${PS0//$ps0_boundary_hook/}"
+				fi
+				PS0="${ps0_boundary_hook}${PS0:-}"
+				__dotfiles_prompt_boundary_active=1
+				__dotfiles_at_user_command=''
 				__dotfiles_install_debug_trap
-				dotfiles_dbg ".FUNCTIONS installed DEBUG trap for timer_start (method=debug)"
+				dotfiles_dbg ".FUNCTIONS installed DEBUG trap + PS0 boundary for timer_start (method=debug)"
 			fi
 		else
 			__dotfiles_debug_timer_armed=1
+			# No PS0 (bash < 4.4): cannot mark the user-command boundary, so the
+			# trap falls back to arming on the first non-excluded command.
+			__dotfiles_prompt_boundary_active=0
 			__dotfiles_install_debug_trap
 			dotfiles_dbg ".FUNCTIONS installed DEBUG trap for timer_start (PS0 unsupported, method=${requested_method})"
 		fi
@@ -220,7 +238,7 @@ function do_my_checks {
 			should_show_divider='true'
 		fi
 
-		if [[ "$DOTFILES_DEBUG" == "true" && "${DOTFILES_DEBUG_PROMPT_VERBOSE:-false}" == "true" ]]; then
+		if [[ "${DOTFILES_DEBUG:-}" == "true" && "${DOTFILES_DEBUG_PROMPT_VERBOSE:-false}" == "true" ]]; then
 			printf '[DOTFILE_DBG: do_my_checks non-cd exit=%s duration_us=%s metadata=%s divider=%s mode=%s]\n' \
 				"$last_cmd_exit_code" "$_last_cmd_us" "$should_show_metadata" "$should_show_divider" "$metadata_mode"
 		fi
@@ -258,7 +276,7 @@ function do_my_checks {
 
 	if [[ "${DOTFILES_FEATURE_LOCAL_HISTORY:-false}" == "true" ]]; then
 		check_for_local_history
-	elif [[ "$DOTFILES_DEBUG" == "true" && "${DOTFILES_DEBUG_PROMPT_VERBOSE:-false}" == "true" ]]; then
+	elif [[ "${DOTFILES_DEBUG:-}" == "true" && "${DOTFILES_DEBUG_PROMPT_VERBOSE:-false}" == "true" ]]; then
 		dotfiles_dbg "do_my_checks skipped check_for_local_history (DOTFILES_FEATURE_LOCAL_HISTORY=false)"
 	fi
 
