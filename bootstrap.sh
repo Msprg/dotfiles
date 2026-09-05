@@ -538,6 +538,45 @@ function _legacy_user_install_detected() {
 	[ -e "$target_home/.functions" ] || [ -d "$target_home/.functions.internal.d" ] || [ -d "$target_home/.config/dotfiles" ];
 }
 
+# Carry the per-user audit trail into the shared store, so audit_bash_history
+# keeps showing pre-migration history. Records are merged by timestamp into
+# the ACCOUNT-named file (the legacy file is per account, whatever key
+# identities it holds), owned by the account, mode 0600; the legacy file then
+# joins the backup. Skipped when the shared file belongs to someone else.
+function _migrate_legacy_audit_history() {
+	local target_home="$1" target_user="$2";
+	local audit_dir="${DOTFILES_SYSTEM_AUDIT_DIR:-/var/log/dotfiles/audit}";
+	local pair legacy shared merged owner status;
+	[ -d "$audit_dir" ] || return 0;
+	for pair in ".bash_history_audit:${target_user}.log" ".bash_history_audit_agent:${target_user}.agent.log"; do
+		legacy="$target_home/${pair%%:*}";
+		shared="$audit_dir/${pair#*:}";
+		[ -s "$legacy" ] || continue;
+		if [ -e "$shared" ]; then
+			owner="$(stat -c %U "$shared" 2> /dev/null)";
+			if [ "$owner" != "$target_user" ]; then
+				printf 'NOTE: %s belongs to %s; leaving %s in place.\n' "$shared" "${owner:-?}" "${legacy/#$target_home/\~}";
+				continue;
+			fi;
+		fi;
+		merged="$(mktemp "${TMPDIR:-/tmp}/dotfiles-audit-merge.XXXXXX")" || return 1;
+		{ [ -e "$shared" ] && cat "$shared"; cat "$legacy"; } 2> /dev/null | sort -s -k1,1 > "$merged";
+		if [ "$EUID" -eq 0 ] && [ "$target_user" != 'root' ]; then
+			install -m 0600 -o "$target_user" -g "$(id -gn "$target_user")" "$merged" "$shared";
+		else
+			install -m 0600 "$merged" "$shared";
+		fi;
+		status=$?;
+		rm -f "$merged";
+		if [ "$status" -eq 0 ]; then
+			_backup_move "$legacy" "${pair%%:*}";
+			printf 'Merged %s into %s\n' "${legacy/#$target_home/\~}" "$shared";
+		else
+			printf 'WARNING: could not merge %s into %s; legacy file left in place.\n' "${legacy/#$target_home/\~}" "$shared" >&2;
+		fi;
+	done;
+}
+
 # Deactivate a per-user install after a system-wide one. Moves ONLY files
 # proven to be ours into a timestamped backup dir; a distro-default or
 # hand-written rc file is left untouched (with a notice). ~/.path, ~/.extra,
@@ -621,6 +660,8 @@ function _migrate_legacy_user_install() {
 	if [ ! -f "$target_home/.bash_profile" ] && [ -f /etc/skel/.bash_profile ]; then
 		cp /etc/skel/.bash_profile "$target_home/.bash_profile" && echo "Restored ~/.bash_profile from /etc/skel.";
 	fi;
+	_migrate_legacy_audit_history "$target_home" "$target_user";
+
 	# Everything this migration created must belong to the target user, not
 	# root: a root-owned rc file or backup dir would lock the user out of
 	# their own configuration.
@@ -731,7 +772,7 @@ unset -f _command_exists _is_true _run_with_privileges _has_bash_completion_load
 	_install_audit_dir _install_audit_session _install_audit_sudoers _rsync_runtime \
 	_install_systemwide migrate_local_additions \
 	migrate_legacy_layout persist_dotfiles_repo_dir _install_user \
-	_legacy_user_install_detected _migrate_legacy_user_install _show_bootstrap_help \
+	_legacy_user_install_detected _migrate_legacy_user_install _migrate_legacy_audit_history _show_bootstrap_help \
 	_dotfiles_migration_home _dotfiles_migration_user 2> /dev/null;
 dotfiles_bootstrap_rc="$dotfiles_bootstrap_status";
 unset DOTFILES_BOOTSTRAP_SOURCE_DIR dotfiles_install_scope dotfiles_bootstrap_force \

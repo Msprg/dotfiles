@@ -111,13 +111,20 @@ into `light`/`full`. The command audit is on in every profile.
   to `/var/log/dotfiles/audit/<identity>.log` (system scope; files 0600, dir
   1733) or `~/.bash_history_audit` (user scope). `identity`/`user` come from
   `BASH_HISTORY_USERNAME` when set (sanitized; intended to be injected by SSH
-  `authorized_keys` `environment=` entries), else the account name. The identity
+  `authorized_keys` `environment=` entries), else the account name. In the
+  sticky shared store a shell writes only a file it owns (`fs.protected_regular`
+  refuses appends to other users' files, root included), so an identity that
+  names another local account — `sudo su` from that account — is recorded under
+  the writer's account file (`root.log`) with the identity in the user column;
+  nothing is ever `chown`ed away from its writer. The identity
   follows a user across privilege escalation two ways, both installed by a
   system-scope bootstrap: `Defaults env_keep += "BASH_HISTORY_USERNAME"` in
   `/etc/sudoers.d/` covers the `sudo` family, and a login-session map under
   `/run/dotfiles-audit/sessions/` (keyed on the immutable kernel audit session
   id `/proc/self/sessionid`, recreated each boot by a `tmpfiles.d` rule) covers
-  env-scrubbing login shells (`su -`, `sudo su -`) that `env_keep` cannot. SSH
+  env-scrubbing login shells (`su -`, `sudo su -`) that `env_keep` cannot; a
+  session without any key identity seeds its account name (create-only), so
+  `sudo su` shells of a password login still record who logged in. SSH
   injection of `BASH_HISTORY_USERNAME` needs
   `PermitUserEnvironment BASH_HISTORY_USERNAME` (sample drop-in
   `$DOTFILES_HOME/init/dotfiles-audit-sshd.conf`; admin-installed, not touched

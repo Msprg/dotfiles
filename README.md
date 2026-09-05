@@ -296,17 +296,24 @@ enabled; usernames longer than 24 characters are truncated.
 1. `DOTFILES_AUDIT_FILE`, if set (agent log: `DOTFILES_AGENT_AUDIT_FILE`).
 2. System scope: `/var/log/dotfiles/audit/<identity>.log` — the shared store
    created by bootstrap (dir root:root mode 1733, files 0600 per user:
-   everyone writes their own log, nobody can list or read others').
-3. If the identity's file exists but belongs to someone else (e.g. `su` kept
-   another user's environment): the account-named file in the same store —
-   the identity still appears in the user column.
+   everyone writes their own log, nobody can list or read others'). A shell
+   only ever writes a file it *owns*: in a sticky world-writable directory the
+   kernel's `fs.protected_regular` (systemd's default sysctl on Debian, Ubuntu,
+   RHEL, ...) refuses appends to another user's file — root included.
+3. The account-named file in the same store when the identity's file exists
+   but belongs to someone else (e.g. `su` kept another user's environment),
+   or when the identity names *another local account* (`sudo su` from that
+   account; a key comment equal to a username) — that account's own shells
+   must keep their file. The identity still appears in the user column.
 4. Legacy `~/.bash_history_audit` (the default for user-scope installs).
 
 `<identity>` is `BASH_HISTORY_USERNAME` (sanitized: conservative charset, max
-64 chars, rejected values fall back) or the account name. Old
-`~/.bash_history_audit` files from previous installs are left frozen in
-place; the viewer falls back to them with a notice when the current log is
-empty.
+64 chars, rejected values fall back) or the account name. A failed write is
+never reported at the prompt; the path is simply re-resolved next time. A
+system-scope `--migrate-user` merges an old `~/.bash_history_audit` (and the
+agent one) by timestamp into the account-named shared file and parks the
+original in the backup dir; where no merge happened the viewer falls back to
+the legacy file with a notice when the current log is empty.
 
 **Audit identity across privilege escalation.** On a shared Unix account,
 `BASH_HISTORY_USERNAME` carries the *real* person's identity, injected per SSH

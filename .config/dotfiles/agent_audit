@@ -79,14 +79,31 @@ function __dotfiles_agent_audit_identity {
 				return 0
 			fi
 		fi
+		# No key identity in this login session: the account is the identity.
+		# Seed it (create-only) so escalated shells record the login account.
+		identity="$(id -un)"
+		if [ -d "$dir" ] && [ -w "$dir" ] && [ ! -e "$file" ]; then
+			( umask 077; printf '%s\n' "$identity" > "$file" ) 2> /dev/null || true
+		fi
+		printf '%s\n' "$identity"
+		return 0
 	fi
 	id -un
+}
+
+function __dotfiles_agent_audit_file_usable {
+	local file="$1" dir="$2"
+	if [ -e "$file" ]; then
+		[ -w "$file" ] && { [ ! -k "$dir" ] || [ -O "$file" ]; }
+	else
+		[ -w "$dir" ]
+	fi
 }
 
 function __dotfiles_agent_audit_resolve_file {
 	local override="${DOTFILES_AGENT_AUDIT_FILE:-}"
 	local legacy="$HOME/.bash_history_audit_agent"
-	local dir candidate account_candidate identity
+	local dir candidate account_candidate identity account
 
 	if [ -n "$override" ]; then
 		printf '%s\n' "$override"
@@ -100,14 +117,22 @@ function __dotfiles_agent_audit_resolve_file {
 
 	if [ -n "$dir" ] && [ -d "$dir" ] && [ -x "$dir" ]; then
 		identity="$(__dotfiles_agent_audit_identity)"
+		account="$(id -un)"
 		candidate="$dir/${identity}.agent.log"
-		if [ -w "$candidate" ] || { [ ! -e "$candidate" ] && [ -w "$dir" ]; }; then
+		account_candidate="$dir/${account}.agent.log"
+		# Same rules as the interactive resolver: an identity naming another
+		# local account records under this account's file, and a file in the
+		# sticky store is usable only when this shell owns it (-O) -- root
+		# included, because fs.protected_regular refuses the append otherwise.
+		if [ "$identity" != "$account" ] && id -u "$identity" > /dev/null 2>&1; then
+			candidate="$account_candidate"
+		fi
+		if __dotfiles_agent_audit_file_usable "$candidate" "$dir"; then
 			printf '%s\n' "$candidate"
 			return 0
 		fi
-		account_candidate="$dir/$(id -un).agent.log"
 		if [ "$account_candidate" != "$candidate" ] \
-			&& { [ -w "$account_candidate" ] || { [ ! -e "$account_candidate" ] && [ -w "$dir" ]; }; }; then
+			&& __dotfiles_agent_audit_file_usable "$account_candidate" "$dir"; then
 			printf '%s\n' "$account_candidate"
 			return 0
 		fi
@@ -180,6 +205,8 @@ function __dotfiles_agent_audit_write {
 	mkdir -p "$audit_dir" 2> /dev/null || return 0
 	if [ ! -e "$audit_file" ]; then
 		{ : > "$audit_file" && chmod 600 "$audit_file"; } 2> /dev/null || return 0
+	elif ! __dotfiles_agent_audit_file_usable "$audit_file" "$audit_dir"; then
+		return 0
 	fi
 
 	max_chars="${DOTFILES_AGENT_AUDIT_MAX_CHARS:-4000}"

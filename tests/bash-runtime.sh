@@ -305,6 +305,14 @@ env -i PATH="$PATH" HOME="$sess_home" RT="$runtime_dir" \
 	[ ! -e "$SDIR/4294967295" ] || exit 15
 	export DOTFILES_AUDIT_SESSION_ID=7777
 	[ "$(__dotfiles_audit_identity)" = "$(id -un)" ] || exit 16
+	# password login (no key anywhere): the account seeds the session, so a
+	# later `sudo su` shell of the same session records the login account
+	[ "$(cat "$SDIR/7777")" = "$(id -un)" ] || exit 19
+	# ...but an account seed never overwrites an entry already present
+	printf "%s\n" "not a valid identity!" > "$SDIR/7779"
+	export DOTFILES_AUDIT_SESSION_ID=7779
+	[ "$(__dotfiles_audit_identity)" = "$(id -un)" ] || exit 20
+	[ "$(cat "$SDIR/7779")" = "not a valid identity!" ] || exit 21
 	# escalated append lands in alices file AND body, not root
 	export DOTFILES_AUDIT_SESSION_ID=4242
 	unset __dotfiles_audit_file_cached; audit_history_file_path > /dev/null
@@ -343,6 +351,13 @@ env -i PATH="$PATH" HOME="$audit_home" RT="$runtime_dir" ADIR="$audit_dir" bash 
 	unset __dotfiles_audit_file_cached DOTFILES_AUDIT_FILE
 	unset __dotfiles_agent_audit_file_cached
 	[ "$(agent_audit_history_file_path)" = "$ADIR/$(id -un).agent.log" ] || exit 15
+	# an identity that names ANOTHER local account records under this account
+	other_acct="$(id -un nobody 2> /dev/null || true)"
+	if [ -n "$other_acct" ] && [ "$other_acct" != "$(id -un)" ]; then
+		unset __dotfiles_audit_file_cached; export BASH_HISTORY_USERNAME="$other_acct"
+		[ "$(audit_history_file_path)" = "$ADIR/$(id -un).log" ] || exit 17
+		unset BASH_HISTORY_USERNAME
+	fi
 	# HISTFILE decoupling
 	unset __dotfiles_audit_file_cached
 	HISTFILE="$HOME/elsewhere/.bash_history"
@@ -386,6 +401,34 @@ env -i PATH="$PATH" HOME="$audit_home" RT="$runtime_dir" ADIR="$audit_dir" bash 
 	[ "$(stat -c %a "$AF")" = 600 ] || exit 32
 ' || fail "audit unit behavior failed (exit $?)"
 pass 'audit paths, dedupe, replace-last-line, capture, and truncation behave'
+
+# [regression] sticky shared store + fs.protected_regular: a file owned by
+# another user cannot be appended to, root included. Needs a second uid, so
+# this block runs only when the suite itself runs as root.
+if [ "$(id -u)" -eq 0 ] && id -u nobody > /dev/null 2>&1; then
+	sticky_dir="$test_tmp_dir/sticky-audit"
+	mkdir -p "$sticky_dir"; chmod 1733 "$sticky_dir"
+	: > "$sticky_dir/root.log"; chown nobody "$sticky_dir/root.log"; chmod 600 "$sticky_dir/root.log"
+	: > "$sticky_dir/nobody.log"; chown nobody "$sticky_dir/nobody.log"; chmod 600 "$sticky_dir/nobody.log"
+	env -i PATH="$PATH" HOME="$audit_home" RT="$runtime_dir" ADIR="$sticky_dir" bash --noprofile --norc -c '
+		set -u
+		function dotfiles_dbg { :; }
+		source "$RT/functions.internal.d/00-common.bash"
+		source "$RT/functions.internal.d/10-history.bash"
+		export DOTFILES_AUDIT_DIR="$ADIR" DOTFILES_FEATURE_TRACK_COMMAND_DURATION=false
+		# sudo su from "nobody": identity names a local account -> root.log,
+		# and the file an older runtime handed to SUDO_USER is reclaimed
+		export BASH_HISTORY_USERNAME=nobody
+		unset __dotfiles_audit_file_cached
+		[ "$(audit_history_file_path)" = "$ADIR/root.log" ] || exit 40
+		[ "$(stat -c %U "$ADIR/root.log")" = root ] || exit 41
+		history -c; history -s "id"; last_cmd_exit_code=0; append_bash_history_audit
+		grep -q "nobody .* id$" "$ADIR/root.log" || exit 42
+		[ "$(stat -c %U "$ADIR/nobody.log")" = nobody ] || exit 43
+		[ ! -s "$ADIR/nobody.log" ] || exit 44
+	' || fail "sticky-store ownership handling failed (exit $?)"
+	pass 'root after sudo su records under root.log and reclaims a handed-over file'
+fi
 
 #!SECTION audit end-to-end (interactive)
 e2e_audit_home="$test_tmp_dir/e2e-audit-home"
@@ -513,6 +556,37 @@ grep -q 'HOME/bin' "$migration_home/.systemspecific" \
 [ -r "$migration_home/.config/dotfiles/features.local" ] \
 	|| fail 'migration removed a per-user features.local'
 pass 'system bootstrap backs up only dotfiles-owned files and spares user rc/overrides'
+
+# The per-user audit trail follows the migration into the shared store,
+# merged by timestamp with records the new runtime may already have written.
+audit_merge_home="$system_fixture/audit-merge-home"
+mkdir -p "$audit_merge_home"
+printf '%s\n' '# Executing .BASH_PROFILE legacy marker' > "$audit_merge_home/.bash_profile"
+printf '%s\n' '# legacy runtime loader' > "$audit_merge_home/.functions"
+audit_rec='%-24s  %-24s  exit:%-3s  took:%-9s  %s\n'
+printf "$audit_rec" 2026-01-01T10:00:00+0100 me 0 - 'old one' > "$audit_merge_home/.bash_history_audit"
+printf "$audit_rec" 2026-01-03T10:00:00+0100 me 0 - 'old three' >> "$audit_merge_home/.bash_history_audit"
+printf "$audit_rec" 2026-01-02T10:00:00+0100 me 0 - 'new two' > "$system_audit/$(id -un).log"
+chmod 600 "$system_audit/$(id -un).log"
+HOME="$audit_merge_home" \
+	DOTFILES_BOOTSTRAP_NO_SUDO=true \
+	DOTFILES_BOOTSTRAP_SKIP_COMPLETION=true \
+	DOTFILES_SYSTEM_INSTALL_ROOT="$system_root" \
+	DOTFILES_SYSTEM_PROFILE_D_DIR="$system_profile_d" \
+	DOTFILES_SYSTEM_AUDIT_DIR="$system_audit" \
+	DOTFILES_SYSTEM_SESSION_DIR="$system_fixture/run/sessions" \
+	bash "$repo_dir/bootstrap.sh" --system --migrate-user --force > /dev/null \
+	|| fail 'migration with a legacy audit trail failed'
+merged_log="$system_audit/$(id -un).log"
+[ "$(wc -l < "$merged_log")" = 3 ] || fail 'legacy audit records were not merged into the shared store'
+[ "$(awk '{print $NF}' "$merged_log" | tr '\n' ' ')" = 'one two three ' ] \
+	|| fail 'merged audit records are not in timestamp order'
+[ "$(stat -c %a "$merged_log")" = 600 ] || fail 'merged audit file is not mode 0600'
+[ ! -e "$audit_merge_home/.bash_history_audit" ] || fail 'legacy audit file was left behind after the merge'
+compgen -G "$audit_merge_home/.dotfiles-user-install-backup-*/.bash_history_audit" > /dev/null \
+	|| fail 'legacy audit file was not parked in the backup dir'
+rm -f "$merged_log"
+pass 'migration merges the legacy audit trail into the shared store by timestamp'
 
 bash "$repo_dir/bootstrap.sh" --user --migrate-user > /dev/null 2>&1
 [ "$?" = 2 ] || fail '--migrate-user with --user did not error with exit 2'

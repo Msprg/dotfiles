@@ -78,7 +78,7 @@ function __dotfiles_audit_session_dir {
 }
 
 function __dotfiles_audit_seed_session {
-	local identity="$1" sid dir file existing
+	local identity="$1" create_only="${2:-false}" sid dir file existing
 	sid="$(__dotfiles_audit_session_id)" || return 0
 	dir="$(__dotfiles_audit_session_dir)"
 	[ -d "$dir" ] && [ -w "$dir" ] || return 0
@@ -87,6 +87,9 @@ function __dotfiles_audit_seed_session {
 		IFS= read -r existing < "$file" 2> /dev/null
 		[ "$existing" = "$identity" ] && return 0
 	fi
+	# create_only: an account-name seed must never overwrite a key identity
+	# (or another user's unreadable entry) already recorded for the session.
+	[ "$create_only" = 'true' ] && [ -e "$file" ] && return 0
 	# Own file, 0600: peers cannot read another session's identity; root (an
 	# escalated shell) reads it regardless.
 	( umask 077; printf '%s\n' "$identity" > "$file" ) 2> /dev/null || true
@@ -126,12 +129,32 @@ function __dotfiles_audit_identity {
 		printf '%s\n' "$recovered"
 		return 0
 	fi
-	id -un
+	# No key identity anywhere in this login session (password login, console,
+	# ...): the account IS the identity. Seed it as well, so `sudo su` / `su -`
+	# shells of this session record who logged in rather than "root".
+	identity="$(id -un)"
+	__dotfiles_audit_seed_session "$identity" 'true'
+	printf '%s\n' "$identity"
+}
+
+# A shared-store file is usable by this shell only when the shell OWNS it
+# (bash -O: owner is the effective uid). `-w` is not enough: root passes -w
+# on anyone's file, yet fs.protected_regular (on by default on Debian, Ubuntu,
+# RHEL, ...) makes the kernel refuse an O_CREAT open -- every `>>` -- of a
+# file owned by another user inside a world-writable sticky directory such as
+# the 1733 store, and that refusal has no capability bypass: it hits root too.
+function __dotfiles_audit_shared_file_usable {
+	local file="$1" dir="$2"
+	if [ -e "$file" ]; then
+		[ -w "$file" ] && { [ ! -k "$dir" ] || [ -O "$file" ]; }
+	else
+		[ -w "$dir" ]
+	fi
 }
 
 function __dotfiles_audit_resolve_file {
 	local override="$1" suffix="$2" legacy="$3"
-	local dir candidate account_candidate identity
+	local dir candidate account_candidate identity account
 
 	if [ -n "$override" ]; then
 		printf '%s\n' "$override"
@@ -145,17 +168,35 @@ function __dotfiles_audit_resolve_file {
 
 	if [ -n "$dir" ] && [ -d "$dir" ] && [ -x "$dir" ]; then
 		identity="$(__dotfiles_audit_identity)"
+		account="$(id -un)"
 		candidate="$dir/${identity}${suffix}.log"
-		if [ -w "$candidate" ] || { [ ! -e "$candidate" ] && [ -w "$dir" ]; }; then
+		account_candidate="$dir/${account}${suffix}.log"
+		# An identity naming ANOTHER local account (sudo su from that account,
+		# or a key comment equal to a username) never claims that account's
+		# file: in the sticky store a file is appendable by its owner only, so
+		# taking it would either fail right here (root after sudo su) or lock
+		# the account's own shells out of it for good. Record under this
+		# account's file instead; the identity still fills the user column.
+		if [ "$identity" != "$account" ] && id -u "$identity" > /dev/null 2>&1; then
+			dotfiles_dbg ".FUNCTIONS audit resolve: identity '$identity' is a local account; recording under '$account_candidate'" >&2
+			candidate="$account_candidate"
+		fi
+		# Repair: an older runtime handed root's own file over to SUDO_USER,
+		# after which no root shell could append to it. Root's account file
+		# only, root only.
+		if [ "${EUID:-$(id -u)}" -eq 0 ] && [ -e "$account_candidate" ] && [ ! -O "$account_candidate" ]; then
+			chown root "$account_candidate" 2> /dev/null \
+				&& dotfiles_dbg ".FUNCTIONS audit resolve: reclaimed '$account_candidate' for root" >&2
+		fi
+		if __dotfiles_audit_shared_file_usable "$candidate" "$dir"; then
 			printf '%s\n' "$candidate"
 			return 0
 		fi
 		# The identity's file exists but belongs to someone else (0600): fall
 		# back to a file named after the account; the identity still appears
 		# in the user column of every record.
-		account_candidate="$dir/$(id -un)${suffix}.log"
 		if [ "$account_candidate" != "$candidate" ] \
-			&& { [ -w "$account_candidate" ] || { [ ! -e "$account_candidate" ] && [ -w "$dir" ]; }; }; then
+			&& __dotfiles_audit_shared_file_usable "$account_candidate" "$dir"; then
 			dotfiles_dbg ".FUNCTIONS audit resolve: '$candidate' not writable; using '$account_candidate'" >&2
 			printf '%s\n' "$account_candidate"
 			return 0
@@ -212,27 +253,15 @@ function __dotfiles_ensure_audit_file_at {
 			dotfiles_dbg ".FUNCTIONS audit ensure file failed: chmod 600 '$audit_file' rc=$chmod_rc"
 			return 1
 		fi
-		# A root shell creating a fresh file for a non-root identity must hand
-		# it over, or the identity's own unprivileged shells could never
-		# append and would silently divert to $HOME forever.
-		if [ "${EUID:-$(id -u)}" -eq 0 ]; then
-			local file_owner=''
-			local identity
-			identity="$(__dotfiles_audit_identity)"
-			if [ "$identity" != 'root' ] && id -u "$identity" > /dev/null 2>&1; then
-				file_owner="$identity"
-			elif [ -n "${SUDO_USER:-}" ] && [ "${SUDO_USER}" != 'root' ] \
-				&& id -u "$SUDO_USER" > /dev/null 2>&1; then
-				file_owner="$SUDO_USER"
-			fi
-			if [ -n "$file_owner" ]; then
-				chown "$file_owner" "$audit_file" 2> /dev/null \
-					&& dotfiles_dbg ".FUNCTIONS audit ensure file chowned '$audit_file' to '$file_owner'"
-			fi
-		fi
+		# The creator keeps the file: in the sticky store only the owner can
+		# append (protected_regular), so handing a fresh file to the identity
+		# or to SUDO_USER -- as an older runtime did -- locked THIS shell out
+		# of its own log. The resolver already routes an identity that names
+		# another local account to this account's file, so nothing here ever
+		# creates a file some other account will need.
 		dotfiles_dbg ".FUNCTIONS audit ensure file created '$audit_file' with mode 600"
-	elif [ ! -w "$audit_file" ]; then
-		dotfiles_dbg ".FUNCTIONS audit ensure file warning: '$audit_file' exists but is not writable"
+	elif ! __dotfiles_audit_shared_file_usable "$audit_file" "$audit_dir"; then
+		dotfiles_dbg ".FUNCTIONS audit ensure file warning: '$audit_file' exists but this shell cannot append to it (owner/mode)"
 		return 1
 	fi
 
@@ -332,7 +361,7 @@ function replace_last_line_in_file {
 	# sudo-root shell would otherwise flip it to root and break the user's
 	# later appends), its SELinux context, and its inode (tail -f viewers).
 	# Safe because every writer serializes on the flock in the caller.
-	cat "$temp_file" > "$target_file" || {
+	cat "$temp_file" > "$target_file" 2> /dev/null || {
 		rm -f "$temp_file"
 		return 1
 	}
@@ -427,7 +456,9 @@ function append_bash_history_audit {
 	lock_file="${audit_file}.lock"
 	lock_fd=''
 	if command -v flock > /dev/null 2>&1; then
-		exec {lock_fd}>>"$lock_file"
+		# The group scopes 2>/dev/null to the open: a bare `exec ... 2>` would
+		# redirect the shell's stderr for good.
+		{ exec {lock_fd}>>"$lock_file"; } 2> /dev/null
 		lock_rc=$?
 		if [ "$lock_rc" -ne 0 ]; then
 			dotfiles_dbg ".FUNCTIONS audit append lock open failed: lock='$lock_file' rc=$lock_rc"
@@ -462,7 +493,7 @@ function append_bash_history_audit {
 			dotfiles_dbg ".FUNCTIONS audit append replaced last entry: user='$history_user_display' exit=$cmd_exit"
 		fi
 	else
-		printf '%s\n' "$audit_line" >> "$audit_file"
+		printf '%s\n' "$audit_line" >> "$audit_file" 2> /dev/null
 		write_rc=$?
 		if [ "$write_rc" -eq 0 ]; then
 			dotfiles_dbg ".FUNCTIONS audit append appended new entry: user='$history_user_display' exit=$cmd_exit"
@@ -479,6 +510,9 @@ function append_bash_history_audit {
 		dotfiles_dbg ".FUNCTIONS audit append success: history_event='$history_event' recorded in '$audit_file'"
 	else
 		dotfiles_dbg ".FUNCTIONS audit append failed: rc=${write_rc:-1} file='$audit_file' file_writable=$audit_file_writable dir_writable=$audit_dir_writable"
+		# Never print at the prompt; re-resolve next time instead (the file
+		# may have changed owner or mode, the store may have come or gone).
+		unset __dotfiles_audit_file_cached
 	fi
 }
 
