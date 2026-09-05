@@ -277,6 +277,27 @@ env -i PATH="$PATH" "${hook_env[@]}" DOTFILES_FEATURE_PROFILE=full bash --noprof
 ' 2> /dev/null || fail 'command timer must start on the user command, not on a (possibly appended) PROMPT_COMMAND part'
 pass 'command timer starts on the user command via the PS0 boundary, not on prompt hooks (even appended ones)'
 
+# [feature] Prompt/dotfiles processing time (DOTFILES_FEATURE_PROMPT_SHOW_PROC_TIME):
+# on in full/light, off in minimal, measured inside PROMPT_COMMAND so prompt idle
+# is excluded (idle exclusion itself is verified in a pty, not here). In full the
+# git status is folded into do_my_checks and cached for PS1.
+env -i PATH="$PATH" "${hook_env[@]}" DOTFILES_FEATURE_PROFILE=full \
+	DOTFILES_FEATURE_HISTORY_AUDIT=false bash --noprofile --norc -i -c '
+	source "$HOME/.bash_profile" >/dev/null 2>&1
+	[ "$DOTFILES_FEATURE_PROMPT_SHOW_PROC_TIME" = true ] || exit 1
+	capture_prompt_exit_status
+	[[ "${__dotfiles_proc_start_us:-}" =~ ^[0-9]+$ ]] || exit 2
+	out="$(do_my_checks 2>&1)"
+	[[ "$out" == *"[prompt "* ]] || exit 3
+	# PS1 interpolates the cached git segment rather than a live command sub.
+	[[ "$PS1" == *__dotfiles_git_prompt_cache* ]] || exit 4
+' 2> /dev/null || fail 'prompt processing time not shown / git not cached in full profile'
+env -i PATH="$PATH" "${hook_env[@]}" bash --noprofile --norc -i -c '
+	source "$HOME/.bash_profile" >/dev/null 2>&1
+	[ "${DOTFILES_FEATURE_PROMPT_SHOW_PROC_TIME:-false}" != true ] || exit 1
+' 2> /dev/null || fail 'prompt processing time should be off in the minimal profile'
+pass 'prompt processing time shown in full (git cached), off in minimal'
+
 # [regression] multi-line PROMPT_COMMAND must not lose its tail to the ; split.
 env -i PATH="$PATH" "${hook_env[@]}" DOTFILES_FEATURE_PROFILE=full bash --noprofile --norc -i -c '
 	PROMPT_COMMAND=$'"'"'echo alpha\necho omega'"'"'

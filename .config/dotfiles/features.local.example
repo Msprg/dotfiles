@@ -9,10 +9,17 @@ DOTFILES_FEATURE_PROFILE=minimal
 # Command auditing (on in every profile; set to false to opt this user out):
 # DOTFILES_FEATURE_HISTORY_AUDIT=true
 
-# Command duration start hook method:
+# Command duration start hook method (all measure real command runtime; the
+# choice is only the mechanism — PS0 needs bash >= 4.4, debug is the fallback):
 # DOTFILES_FEATURE_TRACK_COMMAND_DURATION_METHOD=auto
 # DOTFILES_FEATURE_TRACK_COMMAND_DURATION_METHOD=ps0
 # DOTFILES_FEATURE_TRACK_COMMAND_DURATION_METHOD=debug
+
+# Show how long the prompt itself takes each cycle (the git status + the
+# PROMPT_COMMAND dotfiles hooks), shown as "[prompt <t>]" beside the command
+# duration. Idle time at the prompt is never counted. On by default in light
+# and full; set false to hide it, or true to force it in minimal:
+# DOTFILES_FEATURE_PROMPT_SHOW_PROC_TIME=false
 
 # Dotfiles update checks:
 # DOTFILES_FEATURE_DOTFILES_UPDATE_CHECK=false

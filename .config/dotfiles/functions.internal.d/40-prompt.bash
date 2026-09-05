@@ -12,6 +12,17 @@ function timer_now {
 
 function timer_start { timer_start=${timer_start:-$(timer_now)}; }
 
+# Wall-clock microseconds without forking `date` when possible. Used to time the
+# prompt/dotfiles processing (DOTFILES_FEATURE_PROMPT_SHOW_PROC_TIME) so the
+# measurement itself adds no per-prompt subprocess on bash >= 5.
+function __dotfiles_now_us {
+	if [ -n "${EPOCHREALTIME:-}" ]; then
+		printf '%s\n' "${EPOCHREALTIME/[.,]/}"
+	else
+		printf '%s\n' "$(( $(timer_now) / 1000 ))"
+	fi
+}
+
 function format_duration_us {
 	local delta_us="${1:-0}"
 	local us ms s m h duration_display
@@ -72,6 +83,17 @@ fancyX='✗'
 checkmark='✓'
 __dotfiles_last_pwd="$PWD"
 __dotfiles_prompt_last_exit_code=0
+# Prompt/dotfiles processing timer + cached git segment (see do_my_checks and
+# DOTFILES_FEATURE_PROMPT_SHOW_PROC_TIME). pre/suf hold the color-wrapped args
+# the prompt file passes to prompt_git; they use the readline non-printing
+# markers directly so the cached value renders correctly when PS1 interpolates it.
+__dotfiles_proc_start_us=''
+# Preserve, don't clobber: the prompt file (sourced before this one) sets the
+# pre/suf args when the custom prompt is on. Resetting them here would blank the
+# git segment's coloring/" on " separator.
+__dotfiles_git_prompt_cache="${__dotfiles_git_prompt_cache:-}"
+__dotfiles_git_prompt_pre="${__dotfiles_git_prompt_pre:-}"
+__dotfiles_git_prompt_suf="${__dotfiles_git_prompt_suf:-}"
 __dotfiles_loaded_env_file=''
 __dotfiles_loaded_env_signature=''
 __dotfiles_loaded_env_vars=()
@@ -159,6 +181,20 @@ fi
 function do_my_checks {
 	last_cmd_exit_code="${__dotfiles_prompt_last_exit_code:-$?}"
 	timer_stop # call asap after acquiring the last exit code
+
+	# Prompt/dotfiles processing time (DOTFILES_FEATURE_PROMPT_SHOW_PROC_TIME).
+	# When the custom prompt is on, its one expensive element — the git status
+	# in prompt_git — is computed HERE, in PROMPT_COMMAND, and cached for PS1 to
+	# interpolate. That folds the git cost into a window we can time cleanly
+	# (before the prompt is drawn, so idle is never counted) and makes PS1 a
+	# cheap string interpolation. Runs every cycle, including on a bare `cd`, so
+	# the git segment always refreshes.
+	if [[ "${DOTFILES_FEATURE_PROMPT_SHOW_PROC_TIME:-false}" == "true" \
+		&& "${DOTFILES_FEATURE_CUSTOM_PROMPT:-false}" == "true" ]] \
+		&& declare -F prompt_git > /dev/null; then
+		__dotfiles_git_prompt_cache="$(prompt_git "${__dotfiles_git_prompt_pre:-}" "${__dotfiles_git_prompt_suf:-}")"
+	fi
+
 	if [[ "${DOTFILES_FEATURE_HISTORY_AUDIT:-true}" == "true" ]]; then
 		append_bash_history_audit
 	fi
@@ -231,6 +267,23 @@ function do_my_checks {
 			combined_buff+="${c_white}(${timer_show})"
 		fi
 
+		# Prompt/dotfiles processing time: snapshot now (as late as possible
+		# before drawing, so it covers timer_stop + git-prompt + audit + these
+		# checks) and show it beside the command duration. Idle is excluded by
+		# construction — proc_start was taken when PROMPT_COMMAND began, and this
+		# whole block runs before the prompt is displayed.
+		if [[ "$should_show_metadata" == "true" && "${DOTFILES_FEATURE_PROMPT_SHOW_PROC_TIME:-false}" == "true" ]]; then
+			local proc_us=0
+			if [[ "${__dotfiles_proc_start_us:-}" =~ ^[0-9]+$ ]]; then
+				proc_us=$(( $(__dotfiles_now_us) - __dotfiles_proc_start_us ))
+				(( proc_us < 0 )) && proc_us=0
+			fi
+			if [ -n "$combined_buff" ]; then
+				combined_buff+="  "
+			fi
+			combined_buff+="${c_white}[prompt $(format_duration_us "$proc_us")]"
+		fi
+
 		# Show the divider line after commands that likely produced substantial output.
 		# Exact line counting is not feasible from bash (terminal scrolling makes
 		# cursor-position deltas unreliable), so command duration is used as proxy.
@@ -287,6 +340,14 @@ function do_my_checks {
 
 function capture_prompt_exit_status {
 	__dotfiles_prompt_last_exit_code=$?
+	# First PROMPT_COMMAND part: stamp the start of prompt/dotfiles processing.
+	# The window from here to the end of do_my_checks is pure processing time
+	# (PROMPT_COMMAND parts + the git-prompt computation folded into
+	# do_my_checks); the idle a user spends at the prompt is after this and is
+	# never included. See DOTFILES_FEATURE_PROMPT_SHOW_PROC_TIME.
+	if [[ "${DOTFILES_FEATURE_PROMPT_SHOW_PROC_TIME:-false}" == "true" ]]; then
+		__dotfiles_proc_start_us="$(__dotfiles_now_us)"
+	fi
 }
 
 function add_prompt_command {

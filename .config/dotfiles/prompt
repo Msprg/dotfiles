@@ -156,7 +156,19 @@ PS1+="\[${white}\] at ";
 PS1+="\[${hostStyle}\]\h"; # host
 PS1+="\[${white}\] in ";
 PS1+="\[${green}\]\w"; # working directory full path
-PS1+="\$(prompt_git \"\[${white}\] on \[${violet}\]\" \"\[${blue}\]\")"; # Git repository details
+# Git repository details. With DOTFILES_FEATURE_PROMPT_SHOW_PROC_TIME the git
+# status is computed once per prompt inside do_my_checks (PROMPT_COMMAND) and
+# cached, so it can be timed and PS1 just interpolates the result; the cached
+# args use the readline non-printing markers (\001/\002, i.e. \[ \]) directly so
+# the interpolated value keeps correct cursor width. Otherwise PS1 runs
+# prompt_git live at each render, exactly as before.
+if [[ "${DOTFILES_FEATURE_PROMPT_SHOW_PROC_TIME:-false}" == "true" ]]; then
+	__dotfiles_git_prompt_pre=$'\001'"${white}"$'\002'" on "$'\001'"${violet}"$'\002'
+	__dotfiles_git_prompt_suf=$'\001'"${blue}"$'\002'
+	PS1+="\${__dotfiles_git_prompt_cache}";
+else
+	PS1+="\$(prompt_git \"\[${white}\] on \[${violet}\]\" \"\[${blue}\]\")";
+fi
 PS1+="\n";
 # PS1+="\[${white}\]\$ \[${reset}\]"; # `$` (and reset color)
 if [ $(id -u) -eq 0 ]; then # you are root
