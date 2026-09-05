@@ -491,6 +491,10 @@ function append_bash_history_audit {
 # the audit falls back to history-advance-only behavior — nothing breaks.
 function __dotfiles_debug_trap_hook {
 	case "$BASH_COMMAND" in
+		# Our own PROMPT_COMMAND parts: never capture them and never start the
+		# timer on them. do_my_checks clears the timer; a start stamp taken on
+		# the trailing capture-arm step would date the next command from the
+		# moment the prompt was drawn and report idle time as its duration.
 		__dotfiles_* | do_my_checks | capture_prompt_exit_status | timer_stop | append_bash_history_audit) ;;
 		*)
 			if [ "${__dotfiles_audit_capture_armed:-0}" = 1 ]; then
@@ -498,11 +502,11 @@ function __dotfiles_debug_trap_hook {
 				__dotfiles_audit_captured_cmd="$BASH_COMMAND"
 				__dotfiles_audit_capture_seen=1
 			fi
+			if [ "${__dotfiles_debug_timer_armed:-0}" = 1 ]; then
+				timer_start
+			fi
 			;;
 	esac
-	if [ "${__dotfiles_debug_timer_armed:-0}" = 1 ]; then
-		timer_start
-	fi
 	return 0
 }
 

@@ -534,7 +534,7 @@ function _legacy_user_install_detected() {
 	local target_home;
 	target_home="$(_dotfiles_migration_home)";
 	[ -f "$target_home/.bash_profile" ] || return 1;
-	grep -qE 'Executing \.BASH_PROFILE|DOTFILES_HOME' "$target_home/.bash_profile" 2> /dev/null || return 1;
+	grep -qE 'Executing \.BASH(_PROFILE|RC)|DOTFILES_HOME|dotfiles_dbg' "$target_home/.bash_profile" 2> /dev/null || return 1;
 	[ -e "$target_home/.functions" ] || [ -d "$target_home/.functions.internal.d" ] || [ -d "$target_home/.config/dotfiles" ];
 }
 
@@ -588,7 +588,7 @@ function _migrate_legacy_user_install() {
 	}
 
 	if [ -f "$target_home/.bash_profile" ]; then
-		if grep -qE 'Executing \.BASH_PROFILE|DOTFILES_HOME' "$target_home/.bash_profile" 2> /dev/null; then
+		if grep -qE 'Executing \.BASH(_PROFILE|RC)|DOTFILES_HOME|dotfiles_dbg' "$target_home/.bash_profile" 2> /dev/null; then
 			_backup_move "$target_home/.bash_profile" '.bash_profile';
 		else
 			echo "NOTE: ~/.bash_profile does not look dotfiles-managed; leaving it in place.";

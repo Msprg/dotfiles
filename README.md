@@ -58,6 +58,9 @@ when a per-user install is still active — run
 moves **only files verified dotfiles-owned** to
 `~/.dotfiles-user-install-backup-<timestamp>`, restores `/etc/skel` rc files,
 and never touches `~/.extra`, `~/.systemspecific` or `*.local` overrides.
+The restored distro `~/.bashrc` keeps its own prompt on the `minimal` and
+`light` profiles; on `full` (custom prompt enabled) the runtime re-applies its
+PS1 from the first prompt, so the distro file never overrides it.
 
 Bootstrap does **not** `git pull` any more: pull manually before re-running
 it, or use `dotfiles_update` (below). It also ensures a Bash completion

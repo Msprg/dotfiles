@@ -166,4 +166,27 @@ export PS1;
 
 PS2="\[${yellow}\]→ \[${reset}\]";
 export PS2;
+
+# A distro ~/.bashrc runs after the profile.d hook in login and interactive
+# shells and sets its own PS1. Re-apply ours once, from the first prompt, so
+# the custom prompt wins whenever it is enabled. With
+# DOTFILES_FEATURE_CUSTOM_PROMPT=false this file returned above and the distro
+# prompt stays untouched. One-shot: PS1 changed by hand later is respected.
+__dotfiles_custom_ps1="$PS1";
+__dotfiles_custom_ps2="$PS2";
+unset __dotfiles_prompt_reapplied;
+function __dotfiles_prompt_reapply {
+	[[ -n "${__dotfiles_prompt_reapplied:-}" ]] && return 0
+	__dotfiles_prompt_reapplied=1
+	if [[ -n "${__dotfiles_custom_ps1:-}" && "${PS1:-}" != "$__dotfiles_custom_ps1" ]]; then
+		PS1="$__dotfiles_custom_ps1"
+		PS2="$__dotfiles_custom_ps2"
+		dotfiles_dbg ".BASH_PROMPT re-applied custom PS1/PS2 over a later rc override"
+	fi
+	return 0
+}
+case ";${PROMPT_COMMAND:-};" in
+	*";__dotfiles_prompt_reapply;"*) ;;
+	*) PROMPT_COMMAND="__dotfiles_prompt_reapply${PROMPT_COMMAND:+;$PROMPT_COMMAND}" ;;
+esac
 [[ "$DOTFILES_DEBUG" == "true" ]] && echo "[DOTFILE_DBG: .BASH_PROMPT applied custom PS1/PS2]"

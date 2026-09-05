@@ -23,8 +23,13 @@ function dotfiles_profile {
 			;;
 		full|light|minimal)
 			dotfiles_dbg "dotfiles_profile set requested -> $requested_profile"
+			# System-scope installs never create $DOTFILES_LOCAL_HOME; make it on demand.
+			if ! mkdir -p "${local_features_file%/*}"; then
+				echo "dotfiles_profile: cannot create ${local_features_file%/*}" >&2
+				return 1
+			fi
 			if [ ! -f "$local_features_file" ]; then
-				cat > "$local_features_file" << 'EOF'
+				cat > "$local_features_file" << 'EOF' || return 1
 # Local dotfiles feature overrides.
 # Uncomment or set the profile you want:
 # DOTFILES_FEATURE_PROFILE=full
@@ -52,7 +57,11 @@ EOF
 						print "DOTFILES_FEATURE_PROFILE=" profile
 					}
 				}
-			' "$local_features_file" > "$tmpfile" && mv "$tmpfile" "$local_features_file"
+			' "$local_features_file" > "$tmpfile" && mv "$tmpfile" "$local_features_file" || {
+				rm -f "$tmpfile"
+				echo "dotfiles_profile: failed to update $local_features_file" >&2
+				return 1
+			}
 			echo "Set profile to '$requested_profile' in $local_features_file"
 			echo "Run: reload"
 			;;

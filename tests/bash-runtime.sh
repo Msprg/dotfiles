@@ -204,6 +204,47 @@ env -i PATH="$PATH" "${hook_env[@]}" bash --noprofile --norc -i -c '
 ' 2> /dev/null || fail 're-sourcing the runtime stacked prompt hooks'
 pass 'prompt hooks assemble per profile and re-source idempotently'
 
+# A distro ~/.bashrc runs after the profile.d hook and sets its own PS1. With
+# the custom prompt enabled the runtime must win from the first prompt on;
+# with it disabled (minimal) the distro prompt must stay untouched. One-shot:
+# a PS1 changed by hand afterwards is respected.
+env -i PATH="$PATH" "${hook_env[@]}" DOTFILES_FEATURE_PROFILE=full bash --noprofile --norc -i -c '
+	source "$HOME/.bash_profile" >/dev/null 2>&1
+	[ -n "${__dotfiles_custom_ps1:-}" ] || exit 1
+	[[ "$PROMPT_COMMAND" == *__dotfiles_prompt_reapply* ]] || exit 1
+	PS1="distro> "
+	eval "$PROMPT_COMMAND" >/dev/null 2>&1
+	[ "$PS1" = "$__dotfiles_custom_ps1" ] || exit 1
+	PS1="by-hand> "
+	eval "$PROMPT_COMMAND" >/dev/null 2>&1
+	[ "$PS1" = "by-hand> " ] || exit 1
+' 2> /dev/null || fail 'custom prompt did not re-apply over a later ~/.bashrc PS1 (or clobbered a manual PS1)'
+env -i PATH="$PATH" "${hook_env[@]}" bash --noprofile --norc -i -c '
+	source "$HOME/.bash_profile" >/dev/null 2>&1
+	[ -z "${__dotfiles_custom_ps1:-}" ] || exit 1
+	[[ "${PROMPT_COMMAND:-}" != *__dotfiles_prompt_reapply* ]] || exit 1
+	PS1="distro> "
+	eval "$PROMPT_COMMAND" >/dev/null 2>&1
+	[ "$PS1" = "distro> " ] || exit 1
+' 2> /dev/null || fail 'minimal profile touched PS1 set by a later ~/.bashrc'
+pass 'custom prompt re-applies over a distro ~/.bashrc PS1 only when enabled'
+
+# [regression] The DEBUG-trap timer must not be re-armed by our own
+# PROMPT_COMMAND parts (the trailing capture-arm step ran after timer_stop and
+# dated the next command from prompt time, reporting idle time as duration).
+# Checks live in __dotfiles_* functions so the trap ignores the checks themselves.
+env -i PATH="$PATH" "${hook_env[@]}" DOTFILES_FEATURE_PROFILE=full bash --noprofile --norc -i -c '
+	source "$HOME/.bash_profile" >/dev/null 2>&1
+	[[ "$(trap -p DEBUG)" == *__dotfiles_debug_trap_hook* ]] || exit 1
+	__dotfiles_t_unset() { [ -z "${timer_start:-}" ]; }
+	__dotfiles_t_set() { [ -n "${timer_start:-}" ]; }
+	eval "$PROMPT_COMMAND" >/dev/null 2>&1
+	__dotfiles_t_unset || exit 1
+	true
+	__dotfiles_t_set || exit 1
+' 2> /dev/null || fail 'DEBUG-trap timer was re-armed by PROMPT_COMMAND (idle time counted as duration)'
+pass 'command timer starts on the user command, not on the prompt hooks'
+
 # [regression] multi-line PROMPT_COMMAND must not lose its tail to the ; split.
 env -i PATH="$PATH" "${hook_env[@]}" DOTFILES_FEATURE_PROFILE=full bash --noprofile --norc -i -c '
 	PROMPT_COMMAND=$'"'"'echo alpha\necho omega'"'"'
@@ -496,6 +537,45 @@ HOME="$sudo_env_home" \
 compgen -G "$sudo_env_home/.dotfiles-user-install-backup-*/.bash_profile" > /dev/null \
 	|| fail 'stray SUDO_USER redirected the migration away from $HOME'
 pass 'migration ignores SUDO_USER unless actually running as root'
+
+# Installs from the pre-2026-08-31 layout carry a copy-pasted "Executing
+# .BASHRC" marker in ~/.bash_profile (no DOTFILES_HOME line either); the
+# detector must still recognise them as dotfiles-owned.
+old_marker_home="$system_fixture/old-marker-home"
+mkdir -p "$old_marker_home"
+printf '%s\n' '[[ $DOTFILES_DEBUG == "true" ]] && echo "[DOTFILE_DBG: Executing .BASHRC]"' > "$old_marker_home/.bash_profile"
+printf '%s\n' '# legacy runtime loader' > "$old_marker_home/.functions"
+HOME="$old_marker_home" \
+	DOTFILES_BOOTSTRAP_NO_SUDO=true \
+	DOTFILES_BOOTSTRAP_SKIP_COMPLETION=true \
+	DOTFILES_SYSTEM_INSTALL_ROOT="$system_root" \
+	DOTFILES_SYSTEM_PROFILE_D_DIR="$system_profile_d" \
+	DOTFILES_SYSTEM_AUDIT_DIR="$system_audit" \
+	DOTFILES_SYSTEM_SESSION_DIR="$system_fixture/run/sessions" \
+	bash "$repo_dir/bootstrap.sh" --system --migrate-user --force > /dev/null \
+	|| fail 'migration of an old-marker per-user install failed'
+compgen -G "$old_marker_home/.dotfiles-user-install-backup-*/.bash_profile" > /dev/null \
+	|| fail 'old "Executing .BASHRC" marker was not recognised as dotfiles-owned'
+[ ! -e "$old_marker_home/.functions" ] \
+	|| fail 'old-marker migration left ~/.functions in place'
+pass 'migration recognises the pre-2026-08-31 .BASHRC marker in ~/.bash_profile'
+
+# dotfiles_profile must create $DOTFILES_LOCAL_HOME on demand: system-scope
+# installs never create it, and the first `dotfiles_profile full` used to fail.
+profile_home="$system_fixture/profile-home"
+mkdir -p "$profile_home"
+env -i HOME="$profile_home" PATH="$PATH" bash -c '
+	dotfiles_dbg() { :; }
+	. "$1/.config/dotfiles/functions.external.d/20-dotfiles.bash"
+	dotfiles_profile full > /dev/null || exit 1
+	grep -qx "DOTFILES_FEATURE_PROFILE=full" "$HOME/.config/dotfiles/features.local" || exit 1
+	dotfiles_profile light > /dev/null || exit 1
+	[ "$(grep -c "^DOTFILES_FEATURE_PROFILE=" "$HOME/.config/dotfiles/features.local")" = 1 ] || exit 1
+	dotfiles_profile reset > /dev/null || exit 1
+	! grep -q "^DOTFILES_FEATURE_PROFILE=" "$HOME/.config/dotfiles/features.local"
+' _ "$repo_dir" \
+	|| fail 'dotfiles_profile did not create the local override dir or mis-edited features.local'
+pass 'dotfiles_profile creates ~/.config/dotfiles on demand and edits the override idempotently'
 
 #!SECTION bootstrap: user scope + legacy layouts
 user_fixture="$test_tmp_dir/user-install"
