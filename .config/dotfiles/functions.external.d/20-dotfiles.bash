@@ -87,7 +87,7 @@ EOF
 
 function dotfiles_update {
 	local allow_remote_replace='false'
-	local canonical_repo_url="https://github.com/Msprg/dotFiles.git"
+	local canonical_repo_url="https://github.com/Msprg/dotfiles.git"
 	local clone_url="$canonical_repo_url"
 	local target_branch='main'
 	local install_scope="${DOTFILES_INSTALL_SCOPE:-user}"

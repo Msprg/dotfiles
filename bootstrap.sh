@@ -116,7 +116,7 @@ function ensure_bash_completion() {
 }
 
 function _dotfiles_source_metadata() {
-	local source_url='https://github.com/Msprg/dotFiles.git';
+	local source_url='https://github.com/Msprg/dotfiles.git';
 	local source_branch='main';
 	local installed_commit='unknown';
 	local update_mode='manual';

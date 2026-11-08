@@ -8,7 +8,7 @@ audit, and a guard that gives coding agents a clean, near-vanilla shell.
 Clone and install:
 
 ```bash
-git clone https://github.com/Msprg/dotFiles.git
+git clone https://github.com/Msprg/dotfiles.git
 cd dotFiles
 bash bootstrap.sh            # SYSTEM-WIDE install (default; uses sudo)
 bash bootstrap.sh --user     # per-user install only
