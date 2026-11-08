@@ -9,7 +9,7 @@ Clone and install:
 
 ```bash
 git clone https://github.com/Msprg/dotfiles.git
-cd dotFiles
+cd dotfiles
 bash bootstrap.sh            # SYSTEM-WIDE install (default; uses sudo)
 bash bootstrap.sh --user     # per-user install only
 ```
